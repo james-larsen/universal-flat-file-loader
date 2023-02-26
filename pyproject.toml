@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "flat_file_loader"
+version = "0.1.0"
+description = "The purpose of this script is to allow users to load any flat file structure into a database using config files and specs.  It encorporates features such as logging, archiving, file expiration and execution of custom post-load scripts."
+authors = ["James Larsen <james.larsen42@gmail.com>"]
+readme = "README.md"
+packages = [{include = "flat_file_loader", from = "src"}]
+license = "GPL-3.0-only"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+pandas = "^1.5.3"
+sqlalchemy = "^2.0.4"
+configparser = "^5.3.0"
+keyring = "^23.13.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
