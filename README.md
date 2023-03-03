@@ -112,6 +112,7 @@ Below is an outline of the columns used by the application:
 | :--- | :--- | :--- | :--- | :--- |
 |wrk_flat_file_01|record_id|string|Flat File|record_id|
 |wrk_flat_file_01|float_field_01|float64|Flat File|float_field_01|
+|wrk_flat_file_01|integer_field_01|float64|Flat File|integer_field_01|
 |wrk_flat_file_01|date_field_01|date|Flat File|date_field_01|
 |wrk_flat_file_01|timestamp_field_01|timestamp|Flat File|timestamp_field_01|
 
@@ -123,6 +124,7 @@ For all rows with a value of 'Flat File' in the 'Source System' column:
     * float64 - Apply pandas 'to_numeric' function
     * date - Apply pandas 'to_datetime' function
     * timestamp - Apply pandas 'to_datetime' function
+* Provided sample also has entries for stage and target tables.  This is ignored by the program, but can be a good place to maintain this documentation for the overall load.  Just ensure to use something other than 'Flat File' in the 'Source System' column
 
 ---
 ### SQL Scripts
@@ -158,7 +160,7 @@ SQL script(s) to run after the target load.  Will be executed in alphabetical or
 * Every SQL statement must end with a ';'
 * Tables should be prefixed with Stage and Target schema names where appropriate, as the connection will default to the App Setting landing schema
 * Comments prefixed with '--' or enclosed in '/\* \*/' will be ignored
-* All SQL files are optional.  It might be useful to run an initial load without these scripts so data is available in the work schema to write and test appropriate SQL scripts.  Scripts can be placed in the 'Disabled' folder to be ignored by the application
+* All SQL files are optional.  It might be useful to run an initial load without these scripts so data is available in the work schema for profiling and to write and test appropriate SQL scripts.  Scripts can be placed in the 'Disabled' folder to be ignored by the application
 * When running on Windows, the .sql scripts can also be shortcuts ending with '.lnk'.  This is useful if you have multiple flat file formats that populate the same target table.  You can, for example, have the target post-load scripts in a primary folder, with other file format variations having links to the main scripts.  Future support planned for other operating systems.
 
 ## About the Author

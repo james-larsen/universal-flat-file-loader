@@ -14,10 +14,11 @@ will
 this
 one
 */
-INSERT INTO tgt_schema.stg_flat_file_01 (record_id, float_field_01, date_field_01, timestamp_field_01, sourcefilename)
+INSERT INTO tgt_schema.stg_flat_file_01 (record_id, float_field_01, integer_field_01, date_field_01, timestamp_field_01, sourcefilename)
 SELECT 
 record_id, 
 float_field_01, 
+integer_field_01, 
 date_field_01, 
 timestamp_field_01, 
 sourcefilename
