@@ -5,4 +5,12 @@ src/utils/__pycache__
 src/app_config_local.ini
 src/connections_config_local.ini
 src/utils/JSON Test.py
+src/utils/analyze_load_file.py
 ~$*.xls*
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
