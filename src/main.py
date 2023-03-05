@@ -6,16 +6,20 @@ import pathlib
 #import sys
 import glob
 import logging
-import win32com.client
 #import time
 import datetime
 import warnings
 import pandas as pd
+from sqlalchemy import text
+import json
 # pylint: disable=import-error
 from utils.build_engine import build_engine
 from utils import config_reader as cr
 from utils import clean_sql
 # pylint: enable=import-error
+
+if platform.system() == 'Windows':
+    import win32com.client
 
 # pylint: disable=line-too-long
 # pylint: disable=trailing-whitespace
@@ -61,6 +65,7 @@ def read_file_config_settings(input_file_config_path):
         file_config[config_entry]['encoding'],
         file_config[config_entry]['null_value'], # Determine best way to accommodate multiple values
         int(file_config[config_entry]['quoting']),
+        int(file_config[config_entry]['read_chunk_size']),
         int(file_config[config_entry]['archive_expire_days'])
         )
 
@@ -112,7 +117,9 @@ def run_sql_statements(input_support_path):
                     for sql_statement in sql_statements:
                         print(sql_statement)
                         logger.debug('Running SQL statement: \n"%s"', sql_statement)
-                        engine.execute(sql_statement, schema=schema)
+                        with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+                            conn.execute(text(sql_statement))
+                        #engine.execute(sql_statement, schema=schema)
             if script_path_length == 0:
                 print(f'No "{script_type}" present')
                 logger.info('No "%s" matching pattern "%s" present', script_type, script_pattern)
@@ -153,6 +160,12 @@ def delete_expired_files(target_folder, archive_expire_days):
     if len(deleted_dirs) > 0:
         logger.info('Removing empty directories(s): %s', deleted_dirs)
 
+def log_metrics():
+    """Log performance metrics for loads"""
+    job_end_time = datetime.datetime.now()
+    folder_end_time = datetime.datetime.now()
+    file_end_time = datetime.datetime.now()
+
 def load_file(path, files_to_process):
     """Load files to be processed"""
 
@@ -179,7 +192,9 @@ def load_file(path, files_to_process):
     # Drop wrk table if it already exists
     try:
         drop_sql_statement = f"drop table if exists {schema}.{wrk_table};"
-        engine.execute(drop_sql_statement, schema=schema)
+        with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+            conn.execute(text(drop_sql_statement))
+        #engine.execute(drop_sql_statement, schema=schema)
         logger.info('Running SQL statement: "%s"', drop_sql_statement)
     except Exception as e: # pylint: disable=broad-except
         print(e)
@@ -190,6 +205,7 @@ def load_file(path, files_to_process):
     files_loaded = 0 # pylint: disable=invalid-name
     
     for file_path in files_to_process:
+        file_start_time = datetime.datetime.now()
         logger.info('Loading file "%s"', file_path)
         #print(file_path)
         load_file = file_path.name
@@ -204,7 +220,7 @@ def load_file(path, files_to_process):
                 dtype=str,
                 encoding=encoding,
                 na_values={'', null_value},
-                chunksize=read_chunk_size,
+                chunksize=file_read_chunk_size,
                 quoting=quoting,
                 engine='python',
                 compression='infer'
@@ -218,7 +234,7 @@ def load_file(path, files_to_process):
                 df.columns = df.columns.str.replace(char, '', regex= False)
 
             df['load_file_name'] = file_path.name
-            df['load_timestamp'] = job_timestamp
+            df['load_timestamp'] = job_start_time
             #df = df.drop(columns=['boxofficerank']) # test for file doesn't match spec
            
             # Check if load file matches spec
@@ -229,7 +245,7 @@ def load_file(path, files_to_process):
                     file_verified = True # pylint: disable=invalid-name
                 else:
                     print('Load file does not match spec')
-                    bad_files_folder = pathlib.Path(path + os.sep + 'bad_files' + os.sep + job_timestamp_string)
+                    bad_files_folder = pathlib.Path(path + os.sep + 'bad_files' + os.sep + job_start_time_string)
                     logger.error('Load file "%s" does not match spec, moved to "%s%s"', load_file, bad_files_folder, os.sep)
                     break_out_flag = True # pylint: disable=invalid-name
                     break
@@ -248,7 +264,7 @@ def load_file(path, files_to_process):
 
             df.to_sql(wrk_table, engine, schema = schema, if_exists = 'append', index= False)
             loaded_record_count += len(df)
-            print(f"{wrk_table}], rows "+ str(format((n * read_chunk_size) + 1, ',')) +" - " + str(format((n * read_chunk_size) + len(df), ',')) + " (" + str(format(len(df), ',')) + " records loaded) loaded successfully")
+            print(f"Table {wrk_table} - rows "+ str(format((n * file_read_chunk_size) + 1, ',')) +" - " + str(format((n * file_read_chunk_size) + len(df), ',')) + " (" + str(format(len(df), ',')) + " records) loaded successfully")
             files_loaded += 1
 
         if break_out_flag:
@@ -262,7 +278,7 @@ def load_file(path, files_to_process):
         
         # Archive file
         if archive_flag:
-            archive_folder = pathlib.Path(archive_file_path + os.sep + load_folder + os.sep + job_timestamp_string)
+            archive_folder = pathlib.Path(archive_file_path + os.sep + load_folder + os.sep + job_start_time_string)
             if not os.path.exists(archive_folder):
                 os.makedirs(archive_folder)
             new_path = pathlib.Path(archive_folder / load_file)
@@ -275,13 +291,20 @@ def load_file(path, files_to_process):
 
 
 #%%
-job_timestamp = datetime.datetime.now()
-job_timestamp_string = get_current_timestamp()
+job_start_time = datetime.datetime.now()
+job_start_time_string = get_current_timestamp()
 db_target_config = 'target_connection' # Allow user to provide via parameter
 os_platform = platform.system()
 app_config_path = pathlib.Path(os.getcwd() + '/app_config.ini')
 load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
-log_file = pathlib.Path(log_file_path + f'/flat_file_loader_{job_timestamp_string}.log')
+
+# Job performance json
+job = {}
+folder = {}
+file = {}
+
+# Logger settings
+log_file = pathlib.Path(log_file_path + f'/flat_file_loader_{job_start_time_string}.log')
 current_script_path = pathlib.Path(os.getcwd() + '/' + os.path.basename(__file__)).resolve()
 if logging_flag:
     logging.basicConfig(filename=log_file, filemode='w', level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - \n\t%(message)s\n')
@@ -302,6 +325,7 @@ for path in glob.glob(f'{load_file_path}/*/'):
         continue
     #path = r'test_path.txt'
     #print(path)
+    folder_start_time = datetime.datetime.now()
     logger.info('Processing folder: "%s"', path)
     support_path = pathlib.Path(path + 'support')
     file_config_path = pathlib.Path(os.path.join(support_path, 'file_config.ini'))
@@ -310,7 +334,7 @@ for path in glob.glob(f'{load_file_path}/*/'):
     if not os.path.isfile(file_config_path):
         logger.info('No valid config file at "%s"', file_config_path)
         continue
-    extension, delimiter, encoding, null_value, quoting, archive_expire_days = read_file_config_settings(file_config_path)
+    extension, delimiter, encoding, null_value, quoting, file_read_chunk_size, archive_expire_days = read_file_config_settings(file_config_path)
 
     # Delete expired archived files
     delete_expired_files(pathlib.Path(archive_file_path + os.sep + os.path.basename(os.path.normpath(path))), archive_expire_days)

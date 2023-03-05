@@ -12,14 +12,34 @@ pandas = "^1.5.3"
 
 sqlalchemy = "^2.0.4"
 
+psycopg2-binary = "2.9.5"
+
 configparser = "^5.3.0"
+
+openpyxl = "^3.1.0"
 
 keyring = "^23.13.1" # Optional
 
+pywin32 = "^305" # Required for Windows machines
+
 ## Installation
 
-TBD
+### Via poetry (Installation instructions [here](https://python-poetry.org/docs/)):
 
+```python
+poetry install
+```
+
+### Via pip:
+```python
+pip3 install pandas
+pip3 install sqlalchemy
+pip3 install psycopg2-binary
+pip3 install configparser
+pip3 install openpyxl
+pip3 install keyring # Optional
+pip3 install pywin32 # Required for Windows machines
+```
 ## Passwords
 
 The module for retrieving database passwords is located at **'./src/utils/password.py'**.  By default it uses the 'keyring' library, accepts two strings of 'secret_key' and 'user_name' and returns a string of 'password'.  If you wish to use a different method of storing and retrieving database passwords, modify this .py file.
