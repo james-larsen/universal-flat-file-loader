@@ -16,6 +16,7 @@ import json
 from utils.build_engine import build_engine
 from utils import config_reader as cr
 from utils import clean_sql
+from utils import time_difference
 # pylint: enable=import-error
 
 if platform.system() == 'Windows':
@@ -162,9 +163,15 @@ def delete_expired_files(target_folder, archive_expire_days):
 
 def log_metrics():
     """Log performance metrics for loads"""
+    job_start_time_string = datetime.datetime.fromtimestamp(job_start_time.timestamp()).strftime("%Y-%m-%d %H:%M:%S")
     job_end_time = datetime.datetime.now()
-    folder_end_time = datetime.datetime.now()
-    file_end_time = datetime.datetime.now()
+    job_end_time_string = datetime.datetime.fromtimestamp(job_end_time.timestamp()).strftime("%Y-%m-%d %H:%M:%S")
+    # folder_end_time = datetime.datetime.now()
+    # file_end_time = datetime.datetime.now()
+
+    days, hours, minutes, seconds, display_string = time_difference.getDuration(job_start_time, job_end_time)
+
+    logger.info('Job start:%s, job end: %s, total duration: %s', job_start_time_string, job_end_time_string, display_string)
 
 def load_file(path, files_to_process):
     """Load files to be processed"""
@@ -264,7 +271,7 @@ def load_file(path, files_to_process):
 
             df.to_sql(wrk_table, engine, schema = schema, if_exists = 'append', index= False)
             loaded_record_count += len(df)
-            print(f"Table {wrk_table} - rows "+ str(format((n * file_read_chunk_size) + 1, ',')) +" - " + str(format((n * file_read_chunk_size) + len(df), ',')) + " (" + str(format(len(df), ',')) + " records) loaded successfully")
+            print(f"Table {schema}.{wrk_table} - rows "+ str(format((n * file_read_chunk_size) + 1, ',')) +" - " + str(format((n * file_read_chunk_size) + len(df), ',')) + " (" + str(format(len(df), ',')) + " records) loaded successfully")
             files_loaded += 1
 
         if break_out_flag:
@@ -278,6 +285,8 @@ def load_file(path, files_to_process):
         
         # Archive file
         if archive_flag:
+            if not os.path.exists(archive_file_path):
+                os.makedirs(archive_file_path)
             archive_folder = pathlib.Path(archive_file_path + os.sep + load_folder + os.sep + job_start_time_string)
             if not os.path.exists(archive_folder):
                 os.makedirs(archive_folder)
@@ -304,6 +313,8 @@ folder = {}
 file = {}
 
 # Logger settings
+if not os.path.exists(log_file_path):
+    os.makedirs(log_file_path)
 log_file = pathlib.Path(log_file_path + f'/flat_file_loader_{job_start_time_string}.log')
 current_script_path = pathlib.Path(os.getcwd() + '/' + os.path.basename(__file__)).resolve()
 if logging_flag:
@@ -352,5 +363,7 @@ for path in glob.glob(f'{load_file_path}/*/'):
         continue
 
 #%%
+
+log_metrics()
 
 engine.dispose()

@@ -40,6 +40,24 @@ pip3 install openpyxl
 pip3 install keyring # Optional
 pip3 install pywin32 # Required for Windows machines
 ```
+
+## Usage
+
+Configure the following files:
+
+* ./src/app_config.ini
+* ./src/connections_config.ini
+
+Create at least one folder in your "load_file_path" directory.  Configure the following files:
+
+* load_file_path/load_folder/support/file_config.ini
+* load_file_path/load_folder/support/mapping_spec_\*.xls\*
+* Optional: Any SQL scripts required (see section "SQL Scripts" below for details)
+
+```python
+python3 src/main.py
+```
+
 ## Passwords
 
 The module for retrieving database passwords is located at **'./src/utils/password.py'**.  By default it uses the 'keyring' library, accepts two strings of 'secret_key' and 'user_name' and returns a string of 'password'.  If you wish to use a different method of storing and retrieving database passwords, modify this .py file.
