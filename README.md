@@ -201,6 +201,69 @@ SQL script(s) to run after the target load.  Will be executed in alphabetical or
 * All SQL files are optional.  It might be useful to run an initial load without these scripts so data is available in the work schema for profiling and to write and test appropriate SQL scripts.  Scripts can be placed in the 'Disabled' folder to be ignored by the application
 * When running on Windows, the .sql scripts can also be shortcuts ending with '.lnk'.  This is useful if you have multiple flat file formats that populate the same target table.  You can, for example, have the target post-load scripts in a primary folder, with other file format variations having links to the main scripts.  Future support planned for other operating systems.
 
+## Logging
+
+When Logging is enabled via the app_config.ini, two files will be generated:
+
+* YYYY-MM-DD_HHMMSS_flat_file_loader.log
+* YYYY-MM-DD_HHMMSS_flat_file_loader_load_summary.json
+
+The first contains basic job logging and will display any errors encountered during the job run.  
+
+
+The "load_summary.json" file captures basic job metrics and will look similar to the below:
+
+*Note: The calculated durations can be slightly inaccurate when partial seconds are involved*
+
+```json
+{
+    "jobName": "flat_file_loader",
+    "jobScriptPath": "C:/Data Projects/flat_file_loader/main.py",
+    "jobFoldersProcessed": "2",
+    "jobFilesLoaded": "2",
+    "jobRecordsLoaded": "75,826",
+    "jobStart": "2023-03-24 08:17:42",
+    "jobEnd": "2023-03-24 08:17:51",
+    "jobTotalDuration": "9 seconds",
+    "folders": [
+        {
+            "folderPath": "Y:/Python Upload Data Files/Upload/timeday",
+            "folderFilesLoaded": "1",
+            "folderRecordsLoaded": "73,414",
+            "folderStart": "2023-03-24 08:17:43",
+            "folderEnd": "2023-03-24 08:17:51",
+            "folderTotalDuration": "8 seconds",
+            "files": [
+                {
+                    "fileName": "TimeDay.txt",
+                    "fileRecordsLoaded": "73,414",
+                    "fileStart": "2023-03-24 08:17:43",
+                    "fileEnd": "2023-03-24 08:17:51",
+                    "fileTotalDuration": "8 seconds"
+                }
+            ]
+        },
+        {
+            "folderPath": "Y:/Python Upload Data Files/Upload/timemonth",
+            "folderFilesLoaded": "1",
+            "folderRecordsLoaded": "2,412",
+            "folderStart": "2023-03-24 08:17:51",
+            "folderEnd": "2023-03-24 08:17:51",
+            "folderTotalDuration": "0 seconds",
+            "files": [
+                {
+                    "fileName": "TimeMonth.txt",
+                    "fileRecordsLoaded": "2,412",
+                    "fileStart": "2023-03-24 08:17:51",
+                    "fileEnd": "2023-03-24 08:17:51",
+                    "fileTotalDuration": "0 seconds"
+                }
+            ]
+        }
+    ]
+}
+```
+
 ## About the Author
 
 My name is James Larsen, and I have been working professionally as a Business Analyst, Database Architect and Data Engineer since 2007.  While I specialize in Data Modeling and SQL, I am working to improve my knowledge in different data engineering technologies, particularly Python.
