@@ -266,12 +266,19 @@ def load_file(path, files_to_process):
                     na_values={'', null_value},
                     chunksize=file_read_chunk_size,
                     quoting=quoting,
+                    # quotechar='"',
                     engine='python',
                     compression='infer'
                     #,nrows=100_000
                     #,nrows=10
                     ))):
                 df = chunk
+
+                # Remove quotes from all fields
+                if quoting != 3:
+                    df = df.applymap(lambda x: x.replace('"', '') if isinstance(x, str) else x)
+                    df.replace('', None, inplace=True)
+                    df.columns = [col.replace('"', '') for col in df.columns]
 
                 df.columns = df.columns.str.replace(' ', '_').str.lower()
                 for char in ['(', ')', '[', ']']:

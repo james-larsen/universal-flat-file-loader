@@ -3,6 +3,9 @@ src/app_config_local.ini
 src/connections_config_local.ini
 src/utils/JSON Test.py
 src/utils/analyze_load_file.py
+*_local.ini
+!src/utils/generated_files/
+src/utils/generated_files/*
 ~$*.xls*
 
 # Byte-compiled / optimized / DLL files

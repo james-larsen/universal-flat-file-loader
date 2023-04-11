@@ -264,6 +264,54 @@ The "load_summary.json" file captures basic job metrics and will look similar to
 }
 ```
 
+## File Analyzer
+
+A special utility script can be found at **./src/utils/spec_builder.py**.  Its purpose is to help you analyze a given flat file, and build a starting point for the spec and SQL scripts used by the application, as well as the stage and target table creation scripts for your target database.  It is designed to be run directly, rather than to be called by the main program.
+
+**Usage:**
+
+First fill out **./src/utils/spec_builder_config.ini**:
+
+``` python
+[source_file_settings]
+# Path to source file being analyzed
+source_file_path = C:\Flat Files\Upload\flat_files_01\flat_files_01.csv
+# Value to treat as NULL
+null_value = <NULL>
+# Name of subject area, will be embedded in the names of specs and scripts
+subject_area_name = flat_files_01
+# Name of initial landing schema for raw data
+wrk_schema = my_wrk_schema
+# Name of initial landing table in wrk schema.  Leave blank to use "wrk_" + subject_area_name
+wrk_table = wrk_flat_files_01
+# Name of stage schema
+stg_schema = my_stg_schema
+# Name of stage table in stage schema.  Leave blank to use "stg_" + subject_area_name
+stg_table = stg_flat_files_01
+# Name of target schema
+tgt_schema = my_tgt_schema
+# Name of target table in target schema.  Leave blank to use subject_area_name
+tgt_table = my_target_table
+```
+
+Once this is filled out, execute **./src/utils/spec_builder.py**.  This will create a "generated_files" subfolder in the utils folder if it does not already exist.  The following files will be placed in the folder\
+(*Note: All .sql files may need to be adjusted slightly if target db is not PostgreSQL*)
+
+* mapping_spec_*subject_area_name*.xlsx - The necessary details to tell the application how to read and map your flat file.  It lacks some of the formatting from the "template" version, but is functional as is, or can be pasted into a formatted version of the spec
+    * The application will attempt to determine likely data types in your file.  For the stg and tgt table specs, it will attempt to estimate decimal scale and precision, string size, and differentiate dates from timestamps\
+    **Important note:** Columns with NULL for every record will be treated as "string" in the wrk table, and will use "Varchar(?)" for the stg and tgt fields.  Make sure to manually fix this in the spec as well as the generated SQL files before running
+    * For stg and tgt field names, the source file headers will automatically be converted in the following ways: 
+        * Values to lowercase
+        * Spaces and "(" replaced with "_"
+        * ")" removed
+        * The following ending keywords updated with a leading "_":\
+        'id','cd','code','num','flag','desc','name','amt','qty','price'\
+        Eg. "ProductID" to "product_id" and "Amount (USD)" to "amount_usd"
+* *subject_area_name*_file_config.txt - Determined extension, delimiter and encoding for your file.  These will be plugged into the **file_config.ini** mentioned above
+* *subject_area_name* - table creation scripts.sql - Basic creation scripts for your stg and tgt tables.  Primary key in the tgt table should be updated to be "NOT NULL" and the CONSTRAINT definiton updated
+* wrk to stg load - *subject_area_name*.sql - Deletes current contents of the stg table and loads from the wrk table
+* stg to tgt load - *subject_area_name*.sql - Deletes from tgt table based on matching records from stg table and loads from the stg table.  Make sure to update the primary key join point between stg and tgt tables
+
 ## About the Author
 
 My name is James Larsen, and I have been working professionally as a Business Analyst, Database Architect and Data Engineer since 2007.  While I specialize in Data Modeling and SQL, I am working to improve my knowledge in different data engineering technologies, particularly Python.
