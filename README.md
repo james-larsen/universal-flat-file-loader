@@ -295,11 +295,11 @@ tgt_table = my_target_table
 ```
 
 Once this is filled out, execute **./src/utils/spec_builder.py**.  This will create a "generated_files" subfolder in the utils folder if it does not already exist.  The following files will be placed in the folder\
-(*Note: All .sql files may need to be adjusted slightly if target db is not PostgreSQL*)
+*Note: All .sql files may need to be adjusted slightly if target db is not PostgreSQL*
 
 * mapping_spec_*subject_area_name*.xlsx - The necessary details to tell the application how to read and map your flat file.  It lacks some of the formatting from the "template" version, but is functional as is, or can be pasted into a formatted version of the spec
     * The application will attempt to determine likely data types in your file.  For the stg and tgt table specs, it will attempt to estimate decimal scale and precision, string size, and differentiate dates from timestamps\
-    **Important note:** Columns with NULL for every record will be treated as "string" in the wrk table, and will use "Varchar(?)" for the stg and tgt fields.  Make sure to manually fix this in the spec as well as the generated SQL files before running
+    **Important note:** Columns with NULL for every record will be treated as "string" in the wrk table, and will use "varchar(?)" for the stg and tgt fields.  Make sure to manually fix this in the spec as well as the generated SQL files before running
     * For stg and tgt field names, the source file headers will automatically be converted in the following ways: 
         * Values to lowercase
         * Spaces and "(" replaced with "_"

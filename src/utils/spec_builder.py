@@ -5,6 +5,7 @@ import os
 import pathlib
 import pandas as pd
 from datetime import datetime, time
+import csv
 import config_reader as cr
 import detect_encoding as de
 
@@ -317,7 +318,8 @@ df_source = pd.read_csv(
     delimiter=delimiter,
     encoding=file_encoding,
     na_values=null_value,
-    dtype=str
+    dtype=str,
+    quoting=csv.QUOTE_ALL
     #compression='infer'
 )
 
