@@ -200,7 +200,7 @@ def log_metrics():
 
     logger.info('Job start:%s, job end: %s, total duration: %s', job_start_time_log, job_end_time_log, display_string)
 
-def load_file(path, files_to_process):
+def load_file(path, files_to_process, extension, delimiter, encoding, null_value, quoting, file_read_chunk_size, archive_expire_days):
     """Load files to be processed"""
 
     # Read file spec
@@ -379,13 +379,54 @@ def load_file(path, files_to_process):
 
     return True
 
+def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger):
+    global support_path
+    if logger is None:
+        logger = logger = globals()['logger']
+        logger.disabled = True
+    # Build list of folders to process by checking for at least one file or the specified type
+    for path in glob.glob(f'{load_file_path}/*/'):
+        # Skip "[Ignore]" folder
+        if os.path.basename(os.path.normpath(path)) == '[Ignore]':
+            continue
+        #path = r'test_path.txt'
+        #print(path)
+        folder_start_time = datetime.datetime.now()
+        logger.info('Processing folder: "%s"', path)
+        support_path = pathlib.Path(path + 'support')
+        file_config_path = pathlib.Path(os.path.join(support_path, 'file_config.ini'))
 
-#%%
+        # Check for valid config file
+        if not os.path.isfile(file_config_path):
+            logger.info('No valid config file at "%s"', file_config_path)
+            continue
+        extension, delimiter, encoding, null_value, quoting, file_read_chunk_size, archive_expire_days = read_file_config_settings(file_config_path)
+
+        # Delete expired archived files
+        delete_expired_files(pathlib.Path(archive_file_path + os.sep + os.path.basename(os.path.normpath(path))), archive_expire_days)
+        
+        # Delete expired log files
+        delete_expired_files(pathlib.Path(log_file_path), log_archive_expire_days)
+        
+        # Determine folders with files to process
+        #files_to_process = list((p.resolve() for p in pathlib.Path(path).glob("**/*") if p.suffix in {"." + extension, ".gz", ".zip", ".bz2", ".xz"}))
+        files_to_process = list((p.resolve() for p in pathlib.Path(path).glob("*") if p.is_file() and p.suffix in {"." + extension, ".gz", ".zip", ".bz2", ".xz"}))
+
+        if files_to_process is None or len(files_to_process) == 0:
+            continue
+
+        if not load_file(path, files_to_process, extension, delimiter, encoding, null_value, quoting, file_read_chunk_size, archive_expire_days):
+            continue
+
+    if job_records_loaded > 0:
+        if logging_flag:
+            log_metrics()
+
+
 job_start_time, job_start_time_string, job_start_time_log = get_current_timestamp()
-db_target_config = 'target_connection' # Allow user to provide via parameter
 os_platform = platform.system()
-app_config_path = pathlib.Path(os.getcwd() + '/app_config.ini')
-load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
+support_path = ''
+logger = logging.getLogger()
 
 # Job performance json
 job_name = 'flat_file_loader'
@@ -397,64 +438,31 @@ job_files_loaded = 0
 job_bad_files = 0
 job_records_loaded = 0
 
-# Logger settings
-if not os.path.exists(log_file_path):
-    os.makedirs(log_file_path)
-log_file = pathlib.Path(log_file_path) / f'{job_start_time_string}_flat_file_loader.log'
-current_script_path = pathlib.Path(os.getcwd() + os.sep + os.path.basename(__file__)).resolve()
-if logging_flag:
-    logging.basicConfig(filename=log_file, 
-        filemode='w', 
-        level=logging.INFO, 
-        format='%(asctime)s - %(name)s - %(levelname)s - \n\t%(message)s\n')
-    logger = logging.getLogger(__name__)
-else:
-    logger = logging.getLogger()
-    logger.disabled = True
-logger.info('Start script: %s', current_script_path)
-logger.info('Build engine using config entry: %s', db_target_config)
+db_target_config = 'target_connection' # Allow user to provide via parameter - future enhancement
 engine, schema = build_engine(pathlib.Path(os.getcwd() + '/connections_config.ini'), db_target_config)
 
 #%%
+if __name__ == '__main__':
+    app_config_path = pathlib.Path(os.getcwd() + '/app_config.ini')
+    load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
 
-# Build list of folders to process by checking for at least one file or the specified type
-for path in glob.glob(f'{load_file_path}/*/'):
-    # Skip "[Ignore]" folder
-    if os.path.basename(os.path.normpath(path)) == '[Ignore]':
-        continue
-    #path = r'test_path.txt'
-    #print(path)
-    folder_start_time = datetime.datetime.now()
-    logger.info('Processing folder: "%s"', path)
-    support_path = pathlib.Path(path + 'support')
-    file_config_path = pathlib.Path(os.path.join(support_path, 'file_config.ini'))
-
-    # Check for valid config file
-    if not os.path.isfile(file_config_path):
-        logger.info('No valid config file at "%s"', file_config_path)
-        continue
-    extension, delimiter, encoding, null_value, quoting, file_read_chunk_size, archive_expire_days = read_file_config_settings(file_config_path)
-
-    # Delete expired archived files
-    delete_expired_files(pathlib.Path(archive_file_path + os.sep + os.path.basename(os.path.normpath(path))), archive_expire_days)
-    
-    # Delete expired log files
-    delete_expired_files(pathlib.Path(log_file_path), log_archive_expire_days)
-    
-    # Determine folders with files to process
-    #files_to_process = list((p.resolve() for p in pathlib.Path(path).glob("**/*") if p.suffix in {"." + extension, ".gz", ".zip", ".bz2", ".xz"}))
-    files_to_process = list((p.resolve() for p in pathlib.Path(path).glob("*") if p.is_file() and p.suffix in {"." + extension, ".gz", ".zip", ".bz2", ".xz"}))
-
-    if files_to_process is None or len(files_to_process) == 0:
-        continue
-
-    if not load_file(path, files_to_process):
-        continue
-
-if job_records_loaded > 0:
+    # Logger settings
+    if not os.path.exists(log_file_path):
+        os.makedirs(log_file_path)
+    log_file = pathlib.Path(log_file_path) / f'{job_start_time_string}_flat_file_loader.log'
+    current_script_path = pathlib.Path(os.getcwd() + os.sep + os.path.basename(__file__)).resolve()
     if logging_flag:
-        log_metrics()
+        logging.basicConfig(filename=log_file, 
+            filemode='w', 
+            level=logging.INFO, 
+            format='%(asctime)s - %(name)s - %(levelname)s - \n\t%(message)s\n')
+        logger = logging.getLogger(__name__)
+    else:
+        logger = logging.getLogger()
+        logger.disabled = True
+    logger.info('Start script: %s', current_script_path)
+    logger.info('Build engine using config entry: %s', db_target_config)
 
-#%%
+    process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger)
 
 engine.dispose()
