@@ -1,12 +1,18 @@
 src/utils/__pycache__
+*_local*.ini
 src/app_config_local.ini
 src/connections_config_local.ini
 src/utils/JSON Test.py
 src/utils/analyze_load_file.py
 *_local.ini
+path_setup.py
 !src/utils/generated_files/
 src/utils/generated_files/*
 ~$*.xls*
+
+# Temporary exclusions
+tests/*
+global_variables.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

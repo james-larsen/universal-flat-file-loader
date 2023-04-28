@@ -1,6 +1,6 @@
 # Universal Flat File Loader
 
-Welcome to my first Python project.  My primary reason for building this application was to help me learn Python while also addressing a common use-case I have encountered in my career as a Data Engineer: loading simple and well-formed flat files into a database without needing to build a formal ETL job.
+Welcome to my first Python project.  My primary reason for building this application was to help me learn Python while also addressing a common use-case I have encountered in my career as a Data Engineer and Business Analyst: loading simple and well-formed flat files into a database without needing to build a formal ETL job.
 
 The purpose of this application is to allow users to load any predictable flat file structure into a database using config files and specs.  It incorporates features such as logging, archiving, file expiration and execution of custom post-load SQL scripts.  The current version is focused on loading to an on-premises PostgreSQL database, but will be enhanced to target other platforms in the future.
 
@@ -41,12 +41,14 @@ pip3 install keyring # Optional
 pip3 install pywin32 # Required for Windows machines
 ```
 
+***As the application uses package-level relative imports, you should add the parent folder containing the "flat_file_loader" folder to your PATH variable.***
+
 ## Usage
 
 Configure the following files:
 
-* ./src/app_config.ini
-* ./src/connections_config.ini
+* ./src/config/app_config.ini
+* ./src/config/connections_config.ini
 
 Create at least one folder in your "load_file_path" directory.  Configure the following files:
 
@@ -60,15 +62,32 @@ python3 src/main.py
 
 ## Passwords
 
-The module for retrieving database passwords is located at **'./src/utils/password.py'**.  By default it uses the 'keyring' library, accepts two strings of 'secret_key' and 'user_name' and returns a string of 'password'.  If you wish to use a different method of storing and retrieving database passwords, modify this .py file.
+The modules for retrieving secured information are located at **'./src/utils/'**. The desired method should be specified in the app_config.ini file. All methods accept two strings of 'account_name' and 'password_key' and return a string of 'secret_value'. If you wish to use a different method of storing and retrieving database passwords, You can use the "password_custom.py" file.
 
 If you require more significant changes to how the password is retrieved (Eg. need to pass a different number of parameters), it is called by the **'./src/utils/build_engine.py'** module.
+
+If you do decide to use the keyring library, you will need to add an entry using the "user_name" and "secret_key" from the connections_config.ini file:
+
+```python
+keyring.set_password("user_name", "secret_key", "myPassword")
+```
+
+Alternatively, if you wish to use a single-argument method, such as AWS Secrets Manager, you can create your Secret IDs in the form of "{account_name}_{password_key}".
+
+The following options have been included:
+
+* Python keyring library (password_keyring.py)
+* AWS Secrets Manager (password_aws.py)
+* AWS Systems Manager Parameter Store (password_ssm.py)
+* Custom method (password_custom.py)
+
+**Note: The sms password module current uses keyring to retrieve the SMS Access Key and Secret Key.  A future enhancement will implement a more consistent and customizable means of doing this, but for now you may need to implement your preferred method of securing and retrieving this kind of information**
 
 ## App Configuration
 
 The application is controlled by a number of configuration files, read using the ConfigParser library:
 
-**./src/app_config.ini**
+**./src/config/app_config.ini**
 
 Controls the general behavior of the application (example values provided)
 
@@ -80,6 +99,8 @@ load_file_path = C:\Flat Files\Upload
 archive_file_path = C:\Flat Files\Archive
 # Location to place log files
 log_file_path = C:\Flat Files\Logs
+# Method for retrieving passwords.  Accepts "keyring", "secretsmanager", "ssm" or "custom"
+password_method = ssm
 # 'read_chunk_size' not currently used; placeholder for future enhancement
 read_chunk_size = 100_000
 # Whether files should be archived after processing.  Accepts True or False
@@ -90,7 +111,7 @@ logging_flag = True
 log_archive_expire_days = 30
 ```
 
-**./src/connections_config.ini**
+**./src/config/connections_config.ini**
 
 Holds connection details for the target database.  Future releases will allow for multiple target databases to be specified.  Builds a SQLAlchemy connection string with the following pattern:
 
@@ -108,7 +129,7 @@ server_name = my_server
 # Initial landing schema.  Account should have create / drop / insert / delete / update privileges
 schema = wrk_schema
 user_name = python_load_wrk
-# Reference value for retrieving the correct password
+# Reference value for retrieving the correct password using keyring library
 secret_key = Database_Dev_WRK
 ```
 
@@ -270,7 +291,7 @@ A special utility script can be found at **./src/utils/spec_builder.py**.  Its p
 
 **Usage:**
 
-First fill out **./src/utils/spec_builder_config.ini**:
+First fill out **./src/config/spec_builder_config.ini**:
 
 ``` python
 [source_file_settings]

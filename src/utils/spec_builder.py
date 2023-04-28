@@ -6,8 +6,8 @@ import pathlib
 import pandas as pd
 from datetime import datetime, time
 import csv
-import config_reader as cr
-import detect_encoding as de
+from flat_file_loader.src.utils import config_reader as cr
+from flat_file_loader.src.utils import detect_encoding as de
 
 # pylint: disable=line-too-long
 # pylint: disable=trailing-whitespace
@@ -264,7 +264,21 @@ def build_tgt_spec():
 
 #%%
 
-source_file_config_path = pathlib.Path(os.getcwd() + '/spec_builder_config.ini')
+# source_file_config_path = pathlib.Path(os.getcwd() + '/spec_builder_config.ini')
+
+current_dir = os.getcwd()
+
+# navigate to the target folder
+while not os.path.basename(current_dir) == 'flat_file_loader':
+    current_dir = os.path.dirname(current_dir)
+
+# remove folders to the right of the target folder
+target_path = os.path.join(current_dir, 'src', 'config')
+
+source_file_config_path = os.path.join(target_path, 'spec_builder_config.ini')
+
+if os.path.exists(os.path.join(target_path, 'spec_builder_config_local.ini')):
+    source_file_config_path = os.path.join(target_path, 'spec_builder_config_local.ini')
 
 source_file_config = cr.read_config_file(source_file_config_path)
 local_config_entry = 'source_file_settings'

@@ -13,10 +13,17 @@ import pandas as pd
 from sqlalchemy import text
 import json
 # pylint: disable=import-error
-from utils.build_engine import build_engine
-from utils import config_reader as cr
-from utils import clean_sql
-from utils import time_difference
+# from utils.build_engine import build_engine
+# from utils import config_reader as cr
+# from utils import clean_sql
+# from utils import time_difference
+# from utils.current_timestamp import get_current_timestamp
+from flat_file_loader.src.utils.build_engine import build_engine
+from flat_file_loader.src.utils import config_reader as cr
+from flat_file_loader.src.utils import clean_sql
+from flat_file_loader.src.utils import time_difference
+from flat_file_loader.src.utils.current_timestamp import get_current_timestamp
+# from flat_file_loader.src.global_variables import setup_globals
 # pylint: enable=import-error
 
 if platform.system() == 'Windows':
@@ -43,6 +50,7 @@ def read_app_config_settings(input_app_config_path):
         app_config[local_config_entry]['load_file_path'],
         app_config[local_config_entry]['archive_file_path'],
         app_config[local_config_entry]['log_file_path'],
+        app_config[local_config_entry]['password_method'],
         int(app_config[local_config_entry]['read_chunk_size']),
         app_config[local_config_entry]['archive_flag'].lower() in ['t', 'true', 'y', 'yes', '1', 'on', 'archive'],
         app_config[local_config_entry]['logging_flag'].lower() in ['t', 'true', 'y', 'yes', '1', 'on', 'archive'],
@@ -69,23 +77,6 @@ def read_file_config_settings(input_file_config_path):
         int(file_config[config_entry]['read_chunk_size']),
         int(file_config[config_entry]['archive_expire_days'])
         )
-
-def get_current_timestamp():
-    """Get current timestamp
-    Variable 1: Timestamp object - Used difference calcs
-    Variable 2: 'YYYY-MM-DD_HHMMSS' - Used for filenames
-    Variable 3: 'YYYY-MM-DD HH:MM:SS' - Used for logs"""
-    return [datetime.datetime.now(), 
-    (
-        datetime.datetime
-        .fromtimestamp(datetime.datetime.now().timestamp())
-        .strftime("%Y-%m-%d_%H%M%S")
-        ), 
-    (
-        datetime.datetime
-        .fromtimestamp(datetime.datetime.now().timestamp())
-        .strftime("%Y-%m-%d %H:%M:%S")
-        )]
 
 def run_sql_statements(input_support_path):
     """Run available SQL statements"""
@@ -225,16 +216,17 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
     wrk_table = df_columns.loc[1].at["target_table"]
     
     # Drop wrk table if it already exists
-    try:
-        drop_sql_statement = f"drop table if exists {schema}.{wrk_table};"
-        with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
-            conn.execute(text(drop_sql_statement))
-        #engine.execute(drop_sql_statement, schema=schema)
-        logger.info('Running SQL statement: "%s"', drop_sql_statement)
-    except Exception as e: # pylint: disable=broad-except
-        print(e)
-        #logger.error(e, exc_info=True)
-        pass
+    if wrk_table != 'python_test_case':
+        try:
+            drop_sql_statement = f"drop table if exists {schema}.{wrk_table};"
+            with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+                conn.execute(text(drop_sql_statement))
+            #engine.execute(drop_sql_statement, schema=schema)
+            logger.info('Running SQL statement: "%s"', drop_sql_statement)
+        except Exception as e: # pylint: disable=broad-except
+            print(e)
+            #logger.error(e, exc_info=True)
+            pass
 
     break_out_flag = False # pylint: disable=invalid-name
     global job_folders_processed, job_files_loaded, job_bad_files
@@ -268,7 +260,10 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
                     quoting=quoting,
                     # quotechar='"',
                     engine='python',
-                    compression='infer'
+                    compression='infer',
+                    # error_bad_lines=True,
+                    # warn_bad_lines=False,
+                    on_bad_lines='error'
                     #,nrows=100_000
                     #,nrows=10
                     ))):
@@ -382,7 +377,8 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
 def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger):
     global support_path
     if logger is None:
-        logger = logger = globals()['logger']
+        # logger = globals()['logger']
+        logger = logging.getLogger()
         logger.disabled = True
     # Build list of folders to process by checking for at least one file or the specified type
     for path in glob.glob(f'{load_file_path}/*/'):
@@ -403,10 +399,12 @@ def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk
         extension, delimiter, encoding, null_value, quoting, file_read_chunk_size, archive_expire_days = read_file_config_settings(file_config_path)
 
         # Delete expired archived files
-        delete_expired_files(pathlib.Path(archive_file_path + os.sep + os.path.basename(os.path.normpath(path))), archive_expire_days)
+        if archive_file_path != '':
+            delete_expired_files(pathlib.Path(archive_file_path + os.sep + os.path.basename(os.path.normpath(path))), archive_expire_days)
         
         # Delete expired log files
-        delete_expired_files(pathlib.Path(log_file_path), log_archive_expire_days)
+        if log_file_path != '':
+            delete_expired_files(pathlib.Path(log_file_path), log_archive_expire_days)
         
         # Determine folders with files to process
         #files_to_process = list((p.resolve() for p in pathlib.Path(path).glob("**/*") if p.suffix in {"." + extension, ".gz", ".zip", ".bz2", ".xz"}))
@@ -423,6 +421,8 @@ def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk
             log_metrics()
 
 
+#%%
+
 job_start_time, job_start_time_string, job_start_time_log = get_current_timestamp()
 os_platform = platform.system()
 support_path = ''
@@ -438,13 +438,15 @@ job_files_loaded = 0
 job_bad_files = 0
 job_records_loaded = 0
 
-db_target_config = 'target_connection' # Allow user to provide via parameter - future enhancement
-engine, schema = build_engine(pathlib.Path(os.getcwd() + '/connections_config.ini'), db_target_config)
-
 #%%
 if __name__ == '__main__':
-    app_config_path = pathlib.Path(os.getcwd() + '/app_config.ini')
-    load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
+    # globals().update(setup_globals())
+    # (job_start_time, job_start_time_string, job_start_time_log, os_platform, support_path, logger, job_name, job, folders, folder, job_folders_processed, job_files_loaded, job_bad_files, job_records_loaded, db_target_config, engine, schema) = setup_globals().values()
+    app_config_path = pathlib.Path(os.getcwd() + '/config/app_config.ini')
+    load_file_path, archive_file_path, log_file_path, password_method, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
+
+    db_target_config = 'target_connection' # Allow user to provide via parameter - future enhancement
+    engine, schema = build_engine(pathlib.Path(os.getcwd() + '/config/connections_config.ini'), db_target_config, password_method)
 
     # Logger settings
     if not os.path.exists(log_file_path):
@@ -465,4 +467,4 @@ if __name__ == '__main__':
 
     process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger)
 
-engine.dispose()
+    engine.dispose()
