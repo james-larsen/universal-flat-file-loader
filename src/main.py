@@ -39,6 +39,7 @@ warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
 def read_app_config_settings(input_app_config_path):
     """Read app configuration parameters"""
+    input_app_config_path = pathlib.Path(input_app_config_path)
     app_config = cr.read_config_file(input_app_config_path)
     local_config_entry = 'app_settings'
     # local_environment = app_config[config_entry]['environment']
@@ -53,7 +54,7 @@ def read_app_config_settings(input_app_config_path):
         app_config[local_config_entry]['password_method'],
         int(app_config[local_config_entry]['read_chunk_size']),
         app_config[local_config_entry]['archive_flag'].lower() in ['t', 'true', 'y', 'yes', '1', 'on', 'archive'],
-        app_config[local_config_entry]['logging_flag'].lower() in ['t', 'true', 'y', 'yes', '1', 'on', 'archive'],
+        app_config[local_config_entry]['logging_flag'].lower() in ['t', 'true', 'y', 'yes', '1', 'on', 'log'],
         int(app_config[local_config_entry]['log_archive_expire_days'])
         )
 
@@ -425,7 +426,7 @@ def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk
 
 job_start_time, job_start_time_string, job_start_time_log = get_current_timestamp()
 os_platform = platform.system()
-support_path = ''
+# support_path = ''
 logger = logging.getLogger()
 
 # Job performance json
@@ -438,15 +439,26 @@ job_files_loaded = 0
 job_bad_files = 0
 job_records_loaded = 0
 
+# Determine project folder
+current_dir = os.getcwd()
+while not os.path.basename(current_dir) == 'flat_file_loader':
+    current_dir = os.path.dirname(current_dir)
+project_dir = current_dir
+
+config_path = pathlib.Path(project_dir + '/src/config')
+
+app_config_path = config_path / "app_config.ini"
+load_file_path, archive_file_path, log_file_path, password_method, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
+
+connection_config_path = config_path / "connections_config.ini"
+db_target_config = 'target_connection' # Allow user to provide via parameter - future enhancement
+
 #%%
 if __name__ == '__main__':
     # globals().update(setup_globals())
     # (job_start_time, job_start_time_string, job_start_time_log, os_platform, support_path, logger, job_name, job, folders, folder, job_folders_processed, job_files_loaded, job_bad_files, job_records_loaded, db_target_config, engine, schema) = setup_globals().values()
-    app_config_path = pathlib.Path(os.getcwd() + '/config/app_config.ini')
-    load_file_path, archive_file_path, log_file_path, password_method, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
-
-    db_target_config = 'target_connection' # Allow user to provide via parameter - future enhancement
-    engine, schema = build_engine(pathlib.Path(os.getcwd() + '/config/connections_config.ini'), db_target_config, password_method)
+    # app_config_path = pathlib.Path(os.getcwd() + '/config/app_config.ini')
+    engine, schema = build_engine(pathlib.Path(connection_config_path), db_target_config, password_method)
 
     # Logger settings
     if not os.path.exists(log_file_path):
@@ -468,3 +480,5 @@ if __name__ == '__main__':
     process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger)
 
     engine.dispose()
+
+# %%

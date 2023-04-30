@@ -5,14 +5,23 @@ src/connections_config_local.ini
 src/utils/JSON Test.py
 src/utils/analyze_load_file.py
 *_local.ini
+main*.py
+!main.py
 path_setup.py
 !src/utils/generated_files/
 src/utils/generated_files/*
+/data/Archive/*
+/data/Logs/*
+/data/Upload/*
+!/data/
+[Ignore]/
 ~$*.xls*
 
 # Temporary exclusions
 tests/*
 global_variables.py
+Dockerfile
+entrypoint.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -15,7 +15,8 @@ psycopg2-binary = "2.9.5"
 configparser = "^5.3.0"
 openpyxl = "^3.1.0"
 keyring = "^23.13.1"
-pywin32 = "^305"
+# pywin32 = "^305"
+pywin32 = { version = "^305", markers = "sys_platform == 'win32'" }
 
 
 [build-system]
