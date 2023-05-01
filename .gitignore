@@ -4,9 +4,17 @@ src/app_config_local.ini
 src/connections_config_local.ini
 src/utils/JSON Test.py
 src/utils/analyze_load_file.py
+*/Logs/**
+*/S3/Logs/**
+*/Archive/**
+*/S3/Archive/**
+*/Upload/**
+*/S3/Upload/**
+*/S3/Config/**
 *_local.ini
 main*.py
 !main.py
+set_keyring_passwords.py
 path_setup.py
 !src/utils/generated_files/
 src/utils/generated_files/*
