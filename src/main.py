@@ -22,15 +22,15 @@ from nexus_utils.package_utils import add_package_to_path, import_relative
 package_root_name = add_package_to_path()
 # from flat_file_loader.src.utils.build_engine import build_engine
 # import_relative('flat_file_loader', 'src.utils.build_engine', 'build_engine', caller_globals=globals())
-import_relative('flat_file_loader', 'src.utils.build_engine', 'build_engine')
+import_relative(package_root_name, 'src.utils.build_engine', 'build_engine')
 # from flat_file_loader.src.utils import config_reader as cr
-import_relative('flat_file_loader', 'src.utils', 'config_reader', alias='cr')
+import_relative(package_root_name, 'src.utils', 'config_reader', alias='cr')
 # from flat_file_loader.src.utils import clean_sql
-import_relative('flat_file_loader', 'src.utils', 'clean_sql')
+import_relative(package_root_name, 'src.utils', 'clean_sql')
 # from flat_file_loader.src.utils import time_difference
-import_relative('flat_file_loader', 'src.utils', 'time_difference')
+import_relative(package_root_name, 'src.utils', 'time_difference')
 # from flat_file_loader.src.utils.current_timestamp import get_current_timestamp
-import_relative('flat_file_loader', 'src.utils.current_timestamp', 'get_current_timestamp')
+import_relative(package_root_name, 'src.utils.current_timestamp', 'get_current_timestamp')
 # from flat_file_loader.src.global_variables import setup_globals
 # pylint: enable=import-error
 
