@@ -22,6 +22,8 @@ boto3 = "^1.26.123"
 
 keyring = "^23.13.1" # Optional
 
+nexus-utilities = "^0.1.5" # My custom utilities package
+
 pywin32 = "^305" # Required for Windows machines
 
 ## Installation
@@ -41,6 +43,7 @@ pip3 install configparser
 pip3 install openpyxl
 pip3 install boto3
 pip3 install keyring # Optional
+pip3 install nexus-utilities # My custom utilities package
 pip3 install pywin32 # Required for Windows machines
 ```
 
