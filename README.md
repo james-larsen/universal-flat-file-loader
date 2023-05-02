@@ -22,7 +22,7 @@ boto3 = "^1.26.123"
 
 keyring = "^23.13.1" # Optional
 
-nexus-utilities = "^0.1.5" # My custom utilities package
+nexus-utilities = "^0.1.8" # My custom utilities package
 
 pywin32 = "^305" # Required for Windows machines
 

@@ -18,7 +18,7 @@ import json
 # from utils import clean_sql
 # from utils import time_difference
 # from utils.current_timestamp import get_current_timestamp
-from nexus_utils import add_package_to_path, import_relative
+from nexus_utils.package_utils import add_package_to_path, import_relative
 package_root_name = add_package_to_path()
 # from flat_file_loader.src.utils.build_engine import build_engine
 # import_relative('flat_file_loader', 'src.utils.build_engine', 'build_engine', caller_globals=globals())
