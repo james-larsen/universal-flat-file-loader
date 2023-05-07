@@ -449,7 +449,7 @@ job_records_loaded = 0
 
 # Determine project folder
 current_dir = os.getcwd()
-while not os.path.basename(current_dir) == 'flat_file_loader':
+while not os.path.basename(current_dir) == package_root_name:
     current_dir = os.path.dirname(current_dir)
 project_dir = current_dir
 

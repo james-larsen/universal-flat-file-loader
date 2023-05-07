@@ -6,8 +6,12 @@ import pathlib
 import pandas as pd
 from datetime import datetime, time
 import csv
-from flat_file_loader.src.utils import config_reader as cr
-from flat_file_loader.src.utils import detect_encoding as de
+from nexus_utils.package_utils import add_package_to_path, import_relative
+package_root_name = add_package_to_path()
+# from flat_file_loader.src.utils import config_reader as cr
+import_relative(package_root_name, 'src.utils', 'config_reader', alias='cr')
+# from flat_file_loader.src.utils import detect_encoding as de
+import_relative(package_root_name, 'src.utils', 'detect_encoding', alias='de')
 
 # pylint: disable=line-too-long
 # pylint: disable=trailing-whitespace
@@ -269,7 +273,7 @@ def build_tgt_spec():
 current_dir = os.getcwd()
 
 # navigate to the target folder
-while not os.path.basename(current_dir) == 'flat_file_loader':
+while not os.path.basename(current_dir) == package_root_name:
     current_dir = os.path.dirname(current_dir)
 
 # remove folders to the right of the target folder
@@ -280,7 +284,7 @@ source_file_config_path = os.path.join(target_path, 'spec_builder_config.ini')
 if os.path.exists(os.path.join(target_path, 'spec_builder_config_local.ini')):
     source_file_config_path = os.path.join(target_path, 'spec_builder_config_local.ini')
 
-source_file_config = cr.read_config_file(source_file_config_path)
+source_file_config = cr.read_config_file(source_file_config_path)  # type: ignore
 local_config_entry = 'source_file_settings'
 source_file_path = source_file_config[local_config_entry]['source_file_path']
 null_value = source_file_config[local_config_entry]['null_value']
@@ -306,7 +310,7 @@ if not source_file_path.lower().endswith(('.csv', '.txt', '.tsv', '.dat', '.tab'
     print("Source file must be one of the following: csv, txt, tsv, dat, tab")
     sys.exit(1)
 
-file_encoding = de.detect_encoding(source_file_path)
+file_encoding = de.detect_encoding(source_file_path)  # type: ignore
 
 # Create spec data frame
 columns = [

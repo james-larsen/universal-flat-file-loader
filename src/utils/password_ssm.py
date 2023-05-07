@@ -6,9 +6,14 @@ import keyring
 
 def get_password(account_name, password_key, encoding='utf-8'):
     """Return password based on account name and secret key"""
-    # TODO:  Come up with a better method of retrieving these values
-    access_key = keyring.get_password(password_key, "SMSAccessKey")
-    secret_key = keyring.get_password(password_key, "SMSSecretKey")
+    
+    access_key = os.environ.get('AWS_SSM_ACCESS_KEY_ID') or keyring.get_password(password_key, "SSMAccessKey")
+    secret_key = os.environ.get('AWS_SSM_SECRETACCESS_KEY_ID') or keyring.get_password(password_key, "SSMSecretKey")
+    ssm_endpoint_url = os.environ.get('AWS_SSM_ENDPOINT_URL') or 'https://ssm.us-west-1.amazonaws.com'
+    ssm_password_path = os.environ.get('AWS_SSM_PASSWORD_PATH') or '/flat_file_loader/passwords/dev'
+
+    if not all([access_key, secret_key, ssm_endpoint_url, ssm_password_path]):
+        raise ValueError('One or more required environment variables is not set')
 
     sts_client = boto3.client('sts', aws_access_key_id=access_key, aws_secret_access_key=secret_key)
 
@@ -19,14 +24,16 @@ def get_password(account_name, password_key, encoding='utf-8'):
 
     client = boto3.client(
         'ssm',
-        endpoint_url='https://ssm.us-west-1.amazonaws.com',
-        region_name='us-west-1',
+        # endpoint_url='https://ssm.us-west-1.amazonaws.com',
+        # region_name='us-west-1',
+        endpoint_url=ssm_endpoint_url,
         aws_access_key_id=access_key_id,
         aws_secret_access_key=secret_access_key,
         aws_session_token=session_token
     )
 
-    password_path = '/flat_file_loader/passwords/dev'
+    # password_path = '/flat_file_loader/passwords/dev'
+    password_path = ssm_password_path
     parameter_name = f"{account_name}_{password_key}"
     if password_path is not None and password_path != '':
         parameter_name = f"{password_path}/{account_name}_{password_key}"

@@ -11,7 +11,7 @@ src/utils/analyze_load_file.py
 */Upload/**
 */S3/Upload/**
 */S3/Config/**
-*_local.ini
+*_local.*
 main*.py
 !main.py
 set_keyring_passwords.py
@@ -23,13 +23,15 @@ src/utils/generated_files/*
 /data/Upload/*
 !/data/
 [Ignore]/
+/.vscode/**
+launch.json
 ~$*.xls*
 
 # Temporary exclusions
 tests/*
 global_variables.py
-Dockerfile
-entrypoint.sh
+# Dockerfile
+# entrypoint.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
