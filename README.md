@@ -87,7 +87,7 @@ The following options have been included:
 * AWS Systems Manager Parameter Store (password_ssm.py)
 * Custom method (password_custom.py)
 
-**Note: The sms password module current uses keyring to retrieve the SMS Access Key and Secret Key.  A future enhancement will implement a more consistent and customizable means of doing this, but for now you may need to implement your preferred method of securing and retrieving this kind of information**
+**Note: The ssm password module current uses keyring to retrieve the SMS Access Key and Secret Key.  A future enhancement will implement a more consistent and customizable means of doing this, but for now you may need to implement your preferred method of securing and retrieving this kind of information**
 
 ## App Configuration
 

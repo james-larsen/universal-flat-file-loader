@@ -18,6 +18,10 @@ set_keyring_passwords.py
 path_setup.py
 !src/utils/generated_files/
 src/utils/generated_files/*
+src/utils/*.py
+!src/utils/generate_config.py
+!src/utils/spec_builder.py
+!src/utils/__init__.py
 /data/Archive/*
 /data/Logs/*
 /data/Upload/*

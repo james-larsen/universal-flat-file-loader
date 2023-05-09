@@ -19,18 +19,24 @@ import json
 # from utils import time_difference
 # from utils.current_timestamp import get_current_timestamp
 from nexus_utils.package_utils import add_package_to_path, import_relative
-package_root_name = add_package_to_path()
+package_root_dir, package_root_name = add_package_to_path()
 # from flat_file_loader.src.utils.build_engine import build_engine
 # import_relative('flat_file_loader', 'src.utils.build_engine', 'build_engine', caller_globals=globals())
-import_relative(package_root_name, 'src.utils.build_engine', 'build_engine')
+# import_relative(package_root_name, 'src.utils.build_engine', 'build_engine')
+from nexus_utils.database_utils import build_engine
 # from flat_file_loader.src.utils import config_reader as cr
-import_relative(package_root_name, 'src.utils', 'config_reader', alias='cr')
+# import_relative(package_root_name, 'src.utils', 'config_reader', alias='cr')
+from nexus_utils import config_utils as cr
 # from flat_file_loader.src.utils import clean_sql
-import_relative(package_root_name, 'src.utils', 'clean_sql')
+# import_relative(package_root_name, 'src.utils', 'clean_sql')
+from nexus_utils.database_utils import clean_sql_statement
 # from flat_file_loader.src.utils import time_difference
-import_relative(package_root_name, 'src.utils', 'time_difference')
+# import_relative(package_root_name, 'src.utils', 'time_difference')
+from nexus_utils.datetime_utils import get_current_timestamp, get_duration
 # from flat_file_loader.src.utils.current_timestamp import get_current_timestamp
-import_relative(package_root_name, 'src.utils.current_timestamp', 'get_current_timestamp')
+# import_relative(package_root_name, 'src.utils.current_timestamp', 'get_current_timestamp')
+from nexus_utils.datetime_utils import get_current_timestamp
+from nexus_utils import password_utils as pw
 # from flat_file_loader.src.global_variables import setup_globals
 # pylint: enable=import-error
 
@@ -60,11 +66,31 @@ def read_app_config_settings(input_app_config_path):
         app_config[local_config_entry]['archive_file_path'],
         app_config[local_config_entry]['log_file_path'],
         app_config[local_config_entry]['password_method'],
+        app_config[local_config_entry]['password_access_key'],
+        app_config[local_config_entry]['password_secret_key'],
+        app_config[local_config_entry]['password_endpoint_url'],
+        app_config[local_config_entry]['password_password_path'],
         int(app_config[local_config_entry]['read_chunk_size']),
         app_config[local_config_entry]['archive_flag'].lower() in ['t', 'true', 'y', 'yes', '1', 'on', 'archive'],
         app_config[local_config_entry]['logging_flag'].lower() in ['t', 'true', 'y', 'yes', '1', 'on', 'log'],
         int(app_config[local_config_entry]['log_archive_expire_days'])
         )
+
+def read_connection_config_settings(input_connection_config_path, db_target_config):
+    """Read database connection configuration"""
+    db_config = cr.read_config_file(input_connection_config_path)
+    connect_type = db_config[db_target_config]['connect_type']
+    #environment = db_config[db_target_config]['environment']
+    server_address = db_config[db_target_config]['server_address']
+    server_port = db_config[db_target_config]['server_port']
+    server_name = db_config[db_target_config]['server_name']
+    schema = db_config[db_target_config]['schema']
+    user_name = db_config[db_target_config]['user_name']
+    secret_key = db_config[db_target_config]['secret_key']
+
+    return (
+        connect_type, server_address, server_port, server_name, schema, user_name, secret_key
+    )
 
 def read_file_config_settings(input_file_config_path):
     """Read file configuration parameters"""
@@ -123,7 +149,7 @@ def run_sql_statements(input_support_path):
                     file_reader = open(pathlib.Path(script), 'r', encoding='utf-8')
                     full_sql_statement = file_reader.read()
                     file_reader.close()
-                    sql_statements = clean_sql.clean_sql_statement(full_sql_statement)  # type: ignore
+                    sql_statements = clean_sql_statement(full_sql_statement)
                     for sql_statement in sql_statements:
                         print(sql_statement)
                         logger.debug('Running SQL statement: \n"%s"', sql_statement)
@@ -173,8 +199,8 @@ def delete_expired_files(target_folder, archive_expire_days):
 def log_metrics():
     """Log performance metrics for loads"""
     global job_name, job, folders
-    job_end_time, job_end_time_string, job_end_time_log = get_current_timestamp()  # type: ignore
-    days, hours, minutes, seconds, display_string = time_difference.getDuration(job_start_time, job_end_time)  # type: ignore
+    job_end_time, job_end_time_string, job_end_time_log = get_current_timestamp()
+    days, hours, minutes, seconds, display_string = get_duration(job_start_time, job_end_time)
     job['jobName'] = job_name
     job['jobScriptPath'] = current_script_path
     job['jobFoldersProcessed'] = str(format(job_folders_processed, ','))
@@ -243,7 +269,7 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
     folder_bad_files = 0 # pylint: disable=invalid-name
     folder_records_loaded = 0 # pylint: disable=invalid-name
     files = []
-    folder_start_time, folder_start_time_string, folder_start_time_log = get_current_timestamp()  # type: ignore
+    folder_start_time, folder_start_time_string, folder_start_time_log = get_current_timestamp()
     bad_files_folder = pathlib.Path(path + os.sep + 'bad_files' + os.sep + job_start_time_string)
     
     for file_path in files_to_process:
@@ -339,8 +365,8 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
         folder_records_loaded += file_records_loaded
         # job_files_loaded += 1
         job_records_loaded += file_records_loaded
-        file_end_time, file_end_time_string, file_end_time_log = get_current_timestamp()  # type: ignore
-        days, hours, minutes, seconds, display_string = time_difference.getDuration(file_start_time, file_end_time)  # type: ignore
+        file_end_time, file_end_time_string, file_end_time_log = get_current_timestamp()
+        days, hours, minutes, seconds, display_string = get_duration(file_start_time, file_end_time)
         file['fileName'] = load_file
         file['fileRecordsLoaded'] = str(format(file_records_loaded, ','))
         file['fileStart'] = file_start_time_log
@@ -369,7 +395,7 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
         
         global folder, folders
         folder_end_time, folder_end_time_string, folder_end_time_log = get_current_timestamp()  # type: ignore
-        days, hours, minutes, seconds, display_string = time_difference.getDuration(folder_start_time, folder_end_time)  # type: ignore
+        days, hours, minutes, seconds, display_string = get_duration(folder_start_time, folder_end_time)  # type: ignore
         folder['folderPath'] = os.path.normpath(path)
         folder['folderFilesLoaded'] = str(format(folder_files_loaded, ','))
         folder['folderRecordsLoaded'] = str(format(folder_records_loaded, ','))
@@ -432,7 +458,7 @@ def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk
 
 #%%
 
-job_start_time, job_start_time_string, job_start_time_log = get_current_timestamp()  # type: ignore
+job_start_time, job_start_time_string, job_start_time_log = get_current_timestamp()
 os_platform = platform.system()
 # support_path = ''
 logger = logging.getLogger()
@@ -456,7 +482,7 @@ project_dir = current_dir
 config_path = pathlib.Path(project_dir + '/src/config')
 
 app_config_path = config_path / "app_config.ini"
-load_file_path, archive_file_path, log_file_path, password_method, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
+load_file_path, archive_file_path, log_file_path, password_method, password_access_key, password_secret_key, password_endpoint_url, password_password_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
 
 connection_config_path = config_path / "connections_config.ini"
 db_target_config = 'target_connection' # Allow user to provide via parameter - future enhancement
@@ -466,7 +492,12 @@ if __name__ == '__main__':
     # globals().update(setup_globals())
     # (job_start_time, job_start_time_string, job_start_time_log, os_platform, support_path, logger, job_name, job, folders, folder, job_folders_processed, job_files_loaded, job_bad_files, job_records_loaded, db_target_config, engine, schema) = setup_globals().values()
     # app_config_path = pathlib.Path(os.getcwd() + '/config/app_config.ini')
-    engine, schema = build_engine(pathlib.Path(connection_config_path), db_target_config, password_method)  # type: ignore
+    connect_type, server_address, server_port, database_name, schema, user_name, secret_key = read_connection_config_settings(connection_config_path, db_target_config)
+    db_password = pw.get_password(password_method, secret_key, access_key=password_access_key, secret_key=password_secret_key, endpoint_url=password_endpoint_url, password_path=password_password_path)
+    
+    # engine, schema = build_engine(pathlib.Path(connection_config_path), db_target_config, password_method)  # type: ignore
+
+    engine = build_engine(connect_type, server_address, server_port, database_name, user_name, db_password)#, schema)
 
     # Logger settings
     if not os.path.exists(log_file_path):
