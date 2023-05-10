@@ -27,6 +27,7 @@ src/utils/*.py
 /data/Upload/*
 !/data/
 [Ignore]/
+[Outdated]/
 /.vscode/**
 launch.json
 ~$*.xls*

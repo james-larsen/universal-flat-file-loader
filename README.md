@@ -100,6 +100,8 @@ password_access_key =
 password_secret_key = 
 # Enpoint URL for secrets retrieval method
 password_endpoint_url = 
+# Region name for secrets retrieval method
+password_region_name = 
 # Path for secrets retrieval method
 password_password_path = 
 # 'read_chunk_size' not currently used; placeholder for future enhancement
@@ -284,6 +286,35 @@ The "load_summary.json" file captures basic job metrics and will look similar to
         }
     ]
 }
+```
+
+## Docker Deployment with S3
+
+A Docker image has been created based on the "tiangolo/uwsgi-nginx" Linux image, with all necessary files and libraries deployed.  It can be found at "jameslarsen42/nexus_flat_file_loader".  Alternatively, a Dockerfile has been included in this package if you wish to build it yourself.
+
+### **S3 Folder Structure**
+
+The Docker Container uses s3sf fuse to mount an S3 bucket to specific locations used by the application.  An S3 bucket should be created with a certain sub-folder structure.  A template can be found at **./templates/S3 Folder Structure/**.  Note that the "app_config.ini" in this folder has already been optimized to point to the correct locations for Uploads, Archives and Logs, but other settings should be customized before uploading to S3.  Similarly make sure to customize "connections_config.ini" for your target database.  The file "docker.env" is not used within the application, but can be useful when launching the Docker Container, if you prefer to use environment variables rather than storing sensitive information in the .ini files.  
+
+The below environment variables are required to be defined when launching the container in order for the S3 mounts to work:
+*  ***AWS_ACCESS_KEY_ID***
+*  ***AWS_SECRET_ACCESS_KEY***
+*  ***S3_SERVER_PATH***
+
+### **Deploying the Container**
+
+You can specify variables directly if you like, but the simplest method is below, after customizing your "docker.env" file.  Note that the "--cap-add SYS_ADMIN --device /dev/fuse" is necessary for the S3 mounts to work properly.
+
+``` bash
+docker run --env-file file/path/to/docker.env --cap-add SYS_ADMIN --device /dev/fuse -it nexus_flat_file_loader
+```
+
+### **Triggering the Application**
+
+Once the container is running, you can trigger the application using the below statement:
+
+``` bash
+python3 /opt/python_scripts/flat_file_loader/src/main.py
 ```
 
 ## File Analyzer

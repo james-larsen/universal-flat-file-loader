@@ -3,6 +3,7 @@
 import os
 import platform
 import pathlib
+import shutil
 #import sys
 import glob
 import logging
@@ -69,6 +70,7 @@ def read_app_config_settings(input_app_config_path):
         app_config[local_config_entry]['password_access_key'],
         app_config[local_config_entry]['password_secret_key'],
         app_config[local_config_entry]['password_endpoint_url'],
+        app_config[local_config_entry]['password_region_name'],
         app_config[local_config_entry]['password_password_path'],
         int(app_config[local_config_entry]['read_chunk_size']),
         app_config[local_config_entry]['archive_flag'].lower() in ['t', 'true', 'y', 'yes', '1', 'on', 'archive'],
@@ -386,7 +388,19 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
             new_path = pathlib.Path(archive_folder / load_file)
             # Update the modification timestamp of the file
             pathlib.Path(file_path).touch()
-            pathlib.Path(file_path).rename(new_path)
+            shutil.move(file_path, new_path)
+        
+        # # Archive file
+        # if archive_flag:
+        #     if not os.path.exists(archive_file_path):
+        #         os.makedirs(archive_file_path)
+        #     archive_folder = pathlib.Path(archive_file_path + os.sep + load_folder + os.sep + job_start_time_string)
+        #     if not os.path.exists(archive_folder):
+        #         os.makedirs(archive_folder)
+        #     new_path = pathlib.Path(archive_folder / load_file)
+        #     # Update the modification timestamp of the file
+        #     pathlib.Path(file_path).touch()
+        #     pathlib.Path(file_path).rename(new_path)
     
     if folder_files_loaded > 0:
         job_folders_processed += 1
@@ -482,7 +496,7 @@ project_dir = current_dir
 config_path = pathlib.Path(project_dir + '/src/config')
 
 app_config_path = config_path / "app_config.ini"
-load_file_path, archive_file_path, log_file_path, password_method, password_access_key, password_secret_key, password_endpoint_url, password_password_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
+load_file_path, archive_file_path, log_file_path, password_method, password_access_key, password_secret_key, password_endpoint_url, password_region_name, password_password_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
 
 connection_config_path = config_path / "connections_config.ini"
 db_target_config = 'target_connection' # Allow user to provide via parameter - future enhancement
@@ -493,7 +507,7 @@ if __name__ == '__main__':
     # (job_start_time, job_start_time_string, job_start_time_log, os_platform, support_path, logger, job_name, job, folders, folder, job_folders_processed, job_files_loaded, job_bad_files, job_records_loaded, db_target_config, engine, schema) = setup_globals().values()
     # app_config_path = pathlib.Path(os.getcwd() + '/config/app_config.ini')
     connect_type, server_address, server_port, database_name, schema, user_name, secret_key = read_connection_config_settings(connection_config_path, db_target_config)
-    db_password = pw.get_password(password_method, secret_key, access_key=password_access_key, secret_key=password_secret_key, endpoint_url=password_endpoint_url, password_path=password_password_path)
+    db_password = pw.get_password(password_method, secret_key, access_key=password_access_key, secret_key=password_secret_key, endpoint_url=password_endpoint_url, region_name=password_region_name, password_path=password_password_path)
     
     # engine, schema = build_engine(pathlib.Path(connection_config_path), db_target_config, password_method)  # type: ignore
 
