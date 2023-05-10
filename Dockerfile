@@ -43,6 +43,8 @@ RUN mkdir /opt/python_scripts/
 
 COPY . /opt/python_scripts/flat_file_loader
 
+RUN pip3 install --upgrade nexus-utilities
+
 RUN dos2unix /opt/python_scripts/flat_file_loader/entrypoint.sh
 
 RUN touch ~/.s3fs.passwd
