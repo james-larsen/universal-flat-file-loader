@@ -6,12 +6,14 @@ import pathlib
 import pandas as pd
 from datetime import datetime, time
 import csv
-from nexus_utils.package_utils import add_package_to_path, import_relative
-package_root_name = add_package_to_path()
+from nexus_utils.package_utils import add_package_to_path#, import_relative
+package_root_dir, package_root_name = add_package_to_path()
 # from flat_file_loader.src.utils import config_reader as cr
-import_relative(package_root_name, 'src.utils', 'config_reader', alias='cr')
+# import_relative(package_root_name, 'src.utils', 'config_reader', alias='cr')
+from nexus_utils import config_utils as cr
 # from flat_file_loader.src.utils import detect_encoding as de
-import_relative(package_root_name, 'src.utils', 'detect_encoding', alias='de')
+# import_relative(package_root_name, 'src.utils', 'detect_encoding', alias='de')
+from nexus_utils import flatfile_utils as de
 
 # pylint: disable=line-too-long
 # pylint: disable=trailing-whitespace

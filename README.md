@@ -22,7 +22,7 @@ boto3 = "^1.26.123"
 
 keyring = "^23.13.1" # Optional
 
-nexus-utilities = "^0.1.8" # My custom utilities package
+nexus-utilities = "^0.2.8" # My custom utilities package
 
 pywin32 = "^305" # Required for Windows machines
 
@@ -68,26 +68,13 @@ python3 src/main.py
 
 ## Passwords
 
-The modules for retrieving secured information are located at **'./src/utils/'**. The desired method should be specified in the app_config.ini file. All methods accept two strings of 'account_name' and 'password_key' and return a string of 'secret_value'. If you wish to use a different method of storing and retrieving database passwords, You can use the "password_custom.py" file.
-
-If you require more significant changes to how the password is retrieved (Eg. need to pass a different number of parameters), it is called by the **'./src/utils/build_engine.py'** module.
+The modules for retrieving secured information are located in the nexus-utilities package. The desired method should be specified in the app_config.ini file. All methods accept two required strings of 'password_method' and 'password_key' and a number of optional arguments, and return a string of 'secret_value'.  See the documentation for nexus-utilities at [https://github.com/james-larsen/nexus-utilities](https://github.com/james-larsen/nexus-utilities) for more details
 
 If you do decide to use the keyring library, you will need to add an entry using the "user_name" and "secret_key" from the connections_config.ini file:
 
 ```python
 keyring.set_password("user_name", "secret_key", "myPassword")
 ```
-
-Alternatively, if you wish to use a single-argument method, such as AWS Secrets Manager, you can create your Secret IDs in the form of "{account_name}_{password_key}".
-
-The following options have been included:
-
-* Python keyring library (password_keyring.py)
-* AWS Secrets Manager (password_aws.py)
-* AWS Systems Manager Parameter Store (password_ssm.py)
-* Custom method (password_custom.py)
-
-**Note: The ssm password module current uses keyring to retrieve the SMS Access Key and Secret Key.  A future enhancement will implement a more consistent and customizable means of doing this, but for now you may need to implement your preferred method of securing and retrieving this kind of information**
 
 ## App Configuration
 
@@ -105,8 +92,16 @@ load_file_path = C:\Flat Files\Upload
 archive_file_path = C:\Flat Files\Archive
 # Location to place log files
 log_file_path = C:\Flat Files\Logs
-# Method for retrieving passwords.  Accepts "keyring", "secretsmanager", "ssm" or "custom"
+# Method for retrieving secrets.  Accepts "keyring", "secretsmanager" or "ssm"
 password_method = ssm
+# Access key for secrets retrieval method
+password_access_key = 
+# Secret key for secrets retrieval method
+password_secret_key = 
+# Enpoint URL for secrets retrieval method
+password_endpoint_url = 
+# Path for secrets retrieval method
+password_password_path = 
 # 'read_chunk_size' not currently used; placeholder for future enhancement
 read_chunk_size = 100_000
 # Whether files should be archived after processing.  Accepts True or False
