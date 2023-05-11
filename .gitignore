@@ -41,6 +41,7 @@ src/spec_builder/**
 # !src/spec_builder/generated_files/.gitkeep
 # !src/spec_builder/generated_files
 !src/spec_builder/spec_builder.py
+!src/spec_builder/__init__.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
