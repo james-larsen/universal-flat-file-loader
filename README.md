@@ -347,7 +347,7 @@ tgt_schema = my_tgt_schema
 tgt_table = my_target_table
 ```
 
-Once this is filled out, execute **./src/spec_builder/spec_builder.py**.  This will create a "generated_files" subfolder in the spec_builder folder if it does not already exist.  The following files will be placed in the folder\
+Once this is filled out, execute **./src/spec_builder/spec_builder.py**.  This will create a "generated_files" subfolder in the spec_builder folder if it does not already exist, and inside there a folder named according to the "subject_area_name" value specified.  The following files will be placed in the folder  
 *Note: All .sql files may need to be adjusted slightly if target db is not PostgreSQL*
 
 * mapping_spec_*subject_area_name*.xlsx - The necessary details to tell the application how to read and map your flat file.  It lacks some of the formatting from the "template" version, but is functional as is, or can be pasted into a formatted version of the spec
@@ -364,6 +364,18 @@ Once this is filled out, execute **./src/spec_builder/spec_builder.py**.  This w
 * *subject_area_name* - table creation scripts.sql - Basic creation scripts for your stg and tgt tables.  Primary key in the tgt table should be updated to be "NOT NULL" and the CONSTRAINT definiton updated
 * wrk to stg load - *subject_area_name*.sql - Deletes current contents of the stg table and loads from the wrk table
 * stg to tgt load - *subject_area_name*.sql - Deletes from tgt table based on matching records from stg table and loads from the stg table.  Make sure to update the primary key join point between stg and tgt tables
+
+As an additional feature, if you specify a folder for "source_file_path", it will scan the entire folder for all files of type .csv, .txt, .tsv, .dat or .tab and process them automatically.  Note that in this case the "subject_area_name", "wrk_table", "stg_table" and "tgt_table" values from the config file will be ignored.  Instead it will infer the "subject_area_name" from the file name, and use it for all table names.
+
+**Rebuilding Scripts from Spec:**
+
+Once the initial files are built, you can have the .sql scripts regenerated from the spec using the **./src/spec_builder/script_updater.py**.  This is useful if you want to make minor tweaks in the spec and have the table creation and load scripts rebuilt.  Note that this script makes many assumptions about the spec structure, so I recommend you only change stage and target field names and data types (Eg. change a Decimal precision and scale, Varchar length, etc.).
+
+It can be used as follows:
+
+```python
+python script_updater.py -fp 'path/to/mapping/spec/mapping_spec_name.xlsx'
+```
 
 ## About the Author
 

@@ -2,6 +2,7 @@
 #%%
 import sys
 import os
+import warnings
 # import pathlib
 import pandas as pd
 from datetime import datetime, time
@@ -14,11 +15,33 @@ from nexus_utils import config_utils as cr
 # from flat_file_loader.src.utils import detect_encoding as de
 # import_relative(package_root_name, 'src.utils', 'detect_encoding', alias='de')
 from nexus_utils import flatfile_utils as de
+from nexus_utils import string_utils
 
 # pylint: disable=line-too-long
 # pylint: disable=trailing-whitespace
 
+warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
+
 #%%
+
+def get_files_to_process(path):
+    files_to_process = []
+    source_file_path_type = ''
+
+    if os.path.isfile(path):
+        files_to_process.append(path)
+        source_file_path_type = 'file'
+    elif os.path.isdir(path):
+        source_file_path_type = 'folder'
+        extensions = ['.csv', '.txt', '.tsv', '.dat', '.tab']
+        for root, _, files in os.walk(path):
+            for file in files:
+                file_extension = os.path.splitext(file)[1]
+                if file_extension in extensions:
+                    file_path = os.path.join(root, file)
+                    files_to_process.append(file_path)
+
+    return source_file_path_type, files_to_process
 
 def get_dtype(dtype, value):
     if dtype == "datetime64[ns]":
@@ -50,9 +73,11 @@ def get_db_datatype(target_column_name):
             if (non_null_values % 1 == 0).all():
                 return 'integer'
             else:
+                # Remove integer values
+                # non_null_values = non_null_values[non_null_values % 1 != 0]
                 # Determine precision and scale
                 max_left = max(non_null_values.apply(lambda x: len(str(int(x)))))
-                max_right = max(non_null_values.apply(lambda x: len(str(x).split('.')[1])))
+                max_right = max(non_null_values.apply(lambda x: len(str(x).split('.')[1]) if len(str(x).split('.')) > 1 else 0))
 
                 # Use the maximum number of digits to the left and right of the decimal point to determine precision and scale
                 scale = max_right + 1  # add buffer of 1 to scale
@@ -74,9 +99,14 @@ def get_db_datatype(target_column_name):
 
             return f'varchar({n})'
 
+# def cleanse_string(string):
+#     string = string.lower().replace(' (', '_').replace(' ', '_').replace('(', '_').replace(')', '')
+#     return string
+
 def format_field(string):
     ending_keywords = ['id', 'cd', 'code', 'num', 'flag', 'desc', 'name', 'amt', 'qty', 'price']
-    string = string.lower().replace(' (', '_').replace(' ', '_').replace('(', '_').replace(')', '')
+    # string = string.lower().replace(' (', '_').replace(' ', '_').replace('(', '_').replace(')', '')
+    string = string_utils.cleanse_string(string, title_to_snake_case=True)
     # string = string.replace('__', '_')
     for keyword in ending_keywords:
         if string.endswith(keyword) and len(string) > len(keyword):
@@ -117,7 +147,7 @@ def build_wrk_spec():
             'Action': 'Add Field',
             'Schema': wrk_schema,
             'Target Table': wrk_table,
-            'Target Field': header.lower(),
+            'Target Field': string_utils.cleanse_string(header, title_to_snake_case=True),
             'Comment': None,
             'Type': type,
             'Char Encoding': None,
@@ -268,188 +298,224 @@ def build_tgt_spec():
     })
     df_spec.loc[len(df_spec)] = detail_record
 
-#%%
+def create_scripts(spec_path):
+    """Create scripts based on a spec"""
+    df_spec = pd.read_excel(spec_path, na_values='', engine='openpyxl')
 
-# source_file_config_path = pathlib.Path(os.getcwd() + '/spec_builder_config.ini')
+    wrk_schema, stg_schema, tgt_schema = df_spec['Schema'].unique()
+    wrk_table, stg_table, tgt_table = df_spec['Target Table'].unique()
 
-current_dir = os.getcwd()
+    # wrk_df = df_spec[(df_spec['Schema'] == wrk_schema) & (~df_spec['Target Field'].isna())].copy()
+    stg_df = df_spec[(df_spec['Schema'] == stg_schema) & (~df_spec['Target Field'].isna())].copy()
+    tgt_df = df_spec[(df_spec['Schema'] == tgt_schema) & (~df_spec['Target Field'].isna())].copy()
 
-# navigate to the target folder
-while not os.path.basename(current_dir) == package_root_name:
-    current_dir = os.path.dirname(current_dir)
-
-# remove folders to the right of the target folder
-# target_path = os.path.join(current_dir, 'src', 'config')
-target_path = os.path.join(os.path.dirname(current_dir), 'config')
-
-source_file_config_path = os.path.join(target_path, 'spec_builder_config.ini')
-
-if os.path.exists(os.path.join(target_path, 'spec_builder_config_local.ini')):
-    source_file_config_path = os.path.join(target_path, 'spec_builder_config_local.ini')
-
-source_file_config = cr.read_config_file(source_file_config_path)  # type: ignore
-local_config_entry = 'source_file_settings'
-source_file_path = source_file_config[local_config_entry]['source_file_path']
-null_value = source_file_config[local_config_entry]['null_value']
-subject_area_name = source_file_config[local_config_entry]['subject_area_name']
-wrk_schema = source_file_config[local_config_entry]['wrk_schema']
-wrk_table = source_file_config[local_config_entry]['wrk_table']
-if wrk_table == '':
-    wrk_table = 'wrk_' + subject_area_name
-stg_schema = source_file_config[local_config_entry]['stg_schema']
-stg_table = source_file_config[local_config_entry]['stg_table']
-if stg_table == '':
-    stg_table = 'stg_' + subject_area_name
-tgt_schema = source_file_config[local_config_entry]['tgt_schema']
-tgt_table = source_file_config[local_config_entry]['tgt_table']
-if tgt_table == '':
-    tgt_table = subject_area_name
-
-if any(not var for var in [subject_area_name, wrk_schema, stg_schema, tgt_schema]):
-    print("The following values in 'spec_builder_config.ini' are required:\nsubject_area_name\nwrk_schema\nstg_schema\ntgt_schema")
-    sys.exit(1)
-
-if not source_file_path.lower().endswith(('.csv', '.txt', '.tsv', '.dat', '.tab')):
-    print("Source file must be one of the following: csv, txt, tsv, dat, tab")
-    sys.exit(1)
-
-file_encoding = de.detect_encoding(source_file_path)  # type: ignore
-
-# Create spec data frame
-columns = [
-    'Action', 'Schema', 'Target Table', 'Target Field', 'Comment',
-    'Type', 'Char Encoding', 'PK', 'FK', 'Source System', 'Source Table', 'Source Field(s)'
-]
-
-df_spec = pd.DataFrame(columns=columns)
-
-# Read flat file into data frame
-with open(source_file_path, "r", encoding=file_encoding) as file:
-    first_row = file.readline().strip()
+    base_filename = os.path.splitext(os.path.basename(spec_path))[0]
+    subject_area_name = base_filename.replace("mapping_spec_", "")
+    target_path = os.path.dirname(spec_path)
     
-if "\t" in first_row:
-    delimiter = "\t"
-elif "|" in first_row:
-    delimiter = "|"
-else:
-    delimiter = ","
+    # Write table creation scripts
+    sql_string = f'-- DROP TABLE {stg_schema}.{stg_table};\n\nCREATE TABLE {stg_schema}.{stg_table} (\n'
 
-df_source = pd.read_csv(
-    source_file_path,
-    delimiter=delimiter,
-    encoding=file_encoding,
-    na_values=null_value,
-    dtype=str,
-    quoting=csv.QUOTE_ALL
-    #compression='infer'
-)
+    for index, row in stg_df.iterrows():
+        target_field = row['Target Field']
+        datatype = row['Type']
+        sql_string += f'\t{target_field} {datatype} NULL, \n'
 
-headers_list = df_source.columns.tolist()
+    sql_string = sql_string[:-3]
 
-# Attempt to convert each field to an appropriate type
-for col in headers_list:
-    if df_source[col].notnull().any():
-        try:
-            df_source[col] = df_source[col].astype(float)
-        except ValueError:
-            try:
-                df_source[col] = pd.to_datetime(df_source[col], errors='raise')
-            except ValueError:
-                pass
+    sql_string += f'\n);\n'
 
-build_wrk_spec()
+    sql_string += f'\n-- DROP TABLE {tgt_schema}.{tgt_table};\n\nCREATE TABLE {tgt_schema}.{tgt_table} (\n'
 
-wrk_df = df_spec[df_spec['Source System'] == 'Flat File'].copy()
+    for index, row in tgt_df.iterrows():
+        target_field = row['Target Field']
+        datatype = row['Type']
+        sql_string += f'\t{target_field} {datatype} NULL, \n'
 
-build_stg_spec()
+    sql_string += f'\tCONSTRAINT field_pkey PRIMARY KEY (field)\n);'
 
-stg_df = df_spec[(df_spec['Schema'] == stg_schema) & (df_spec['Target Field'].notnull())].copy()
+    with open(f'{target_path}/{subject_area_name} - table creation scripts.sql', 'w') as f:
+        f.write(sql_string)
 
-build_tgt_spec()
+    # Write wrk to stg script
+    delete_sql = f'--DELETE FROM {stg_schema}.{stg_table};\n\n'
+    sql_string = 'SELECT \n'
+    insert_string = ''
 
-tgt_df = df_spec[(df_spec['Schema'] == tgt_schema) & (df_spec['Target Field'].notnull())].copy()
+    for index, row in stg_df.iterrows():
+        source_field = row['Source Field(s)']
+        target_field = row['Target Field']
+        sql_string += f'WRK.{source_field} AS {target_field}, \n'
+        insert_string += f'{target_field}, '
 
-#%%
+    sql_string += f'FROM {wrk_schema}.{wrk_table} WRK;'
 
-os.makedirs('generated_files', exist_ok=True)
+    # insert_string = insert_string[:-2]
 
-# Output spec file
-df_spec.to_excel(f'generated_files/mapping_spec_{subject_area_name}.xlsx', index=False)
+    with open(f'{target_path}/wrk to stg load - {subject_area_name}.sql', 'w') as f:
+        f.write(delete_sql)
+        f.write(f'INSERT INTO {stg_schema}.{stg_table} ({insert_string[:-2]})\n')
+        f.write(sql_string)
 
-# Write table creation scripts
-sql_string = f'-- DROP TABLE {stg_schema}.{stg_table};\n\nCREATE TABLE {stg_schema}.{stg_table} (\n'
+    # Write stg to tgt script
+    delete_sql = f'/*\nDELETE FROM {tgt_schema}.{tgt_table} TGT\nWHERE EXISTS\n(\n\tSELECT 1\n\tFROM {stg_schema}.{stg_table} STG\n\tWHERE STG.pkey = TGT.pkey\n);\n*/\n\n'
+    sql_string = 'SELECT \n'
+    insert_string = ''
 
-for index, row in stg_df.iterrows():
-    target_field = row['Target Field']
-    datatype = row['Type']
-    sql_string += f'\t{target_field} {datatype} NULL, \n'
+    for index, row in tgt_df.iterrows():
+        source_field = row['Source Field(s)']
+        target_field = row['Target Field']
+        sql_string += f'STG.{source_field} AS {target_field}, \n'
+        insert_string += f'{target_field}, '
 
-sql_string = sql_string[:-3]
+    sql_string += f'FROM {stg_schema}.{stg_table} STG;'
 
-sql_string += f'\n);\n'
+    with open(f'{target_path}/stg to tgt load - {subject_area_name}.sql', 'w') as f:
+        f.write(delete_sql)
+        f.write(f'INSERT INTO {tgt_schema}.{tgt_table} ({insert_string[:-2]})\n')
+        f.write(sql_string)
 
-sql_string += f'\n-- DROP TABLE {tgt_schema}.{tgt_table};\n\nCREATE TABLE {tgt_schema}.{tgt_table} (\n'
-
-for index, row in tgt_df.iterrows():
-    target_field = row['Target Field']
-    datatype = row['Type']
-    sql_string += f'\t{target_field} {datatype} NULL, \n'
-
-sql_string += f'\tCONSTRAINT field_pkey PRIMARY KEY (field)\n);'
-
-with open(f'generated_files/{subject_area_name} - table creation scripts.sql', 'w') as f:
-    f.write(sql_string)
-
-# Write wrk to stg script
-delete_sql = f'--DELETE FROM {stg_schema}.{stg_table};\n\n'
-sql_string = 'SELECT \n'
-insert_string = ''
-
-for index, row in stg_df.iterrows():
-    source_field = row['Source Field(s)']
-    target_field = row['Target Field']
-    sql_string += f'WRK.{source_field} AS {target_field}, \n'
-    insert_string += f'{target_field}, '
-
-sql_string += f'FROM {wrk_schema}.{wrk_table} WRK;'
-
-# insert_string = insert_string[:-2]
-
-with open(f'generated_files/wrk to stg load - {subject_area_name}.sql', 'w') as f:
-    f.write(delete_sql)
-    f.write(f'INSERT INTO {stg_schema}.{stg_table} ({insert_string[:-2]})\n')
-    f.write(sql_string)
-
-# Write stg to tgt script
-delete_sql = f'/*\nDELETE FROM {tgt_schema}.{tgt_table} TGT\nWHERE EXISTS\n(\n\tSELECT 1\n\tFROM {stg_schema}.{stg_table} STG\n\tWHERE STG.pkey = TGT.pkey\n);\n*/\n\n'
-sql_string = 'SELECT \n'
-insert_string = ''
-
-for index, row in tgt_df.iterrows():
-    source_field = row['Source Field(s)']
-    target_field = row['Target Field']
-    sql_string += f'STG.{source_field} AS {target_field}, \n'
-    insert_string += f'{target_field}, '
-
-sql_string += f'FROM {stg_schema}.{stg_table} STG;'
-
-with open(f'generated_files/stg to tgt load - {subject_area_name}.sql', 'w') as f:
-    f.write(delete_sql)
-    f.write(f'INSERT INTO {tgt_schema}.{tgt_table} ({insert_string[:-2]})\n')
-    f.write(sql_string)
-
-if not os.path.exists("generated_files"):
-    os.makedirs("generated_files")
-
-# Output relevant file_config fields
-filename, file_extension = os.path.splitext(source_file_path)
-
-delimiter_output = delimiter.replace("\t", "\\t")
-
-with open(f'generated_files/{subject_area_name}_file_config.txt', 'w') as f:
-    f.write(f"extension = {file_extension[1:]}\n")
-    f.write(f"delimiter = {delimiter_output}\n")
-    f.write(f"encoding = {file_encoding}\n")
-    f.write(f"null_value = {null_value}\n")
+    # if not os.path.exists("generated_files"):
+    #     os.makedirs("generated_files")
 
 #%%
+
+if __name__ == '__main__':
+    # source_file_config_path = pathlib.Path(os.getcwd() + '/spec_builder_config.ini')
+
+    current_dir = os.getcwd()
+
+    # navigate to the target folder
+    while not os.path.basename(current_dir) == package_root_name:
+        current_dir = os.path.dirname(current_dir)
+
+    #%%
+
+    # remove folders to the right of the target folder
+    # target_path = os.path.join(current_dir, 'src', 'config')
+    target_path = os.path.join(os.path.dirname(current_dir), 'config')
+
+    source_file_config_path = os.path.join(target_path, 'spec_builder_config.ini')
+
+    if os.path.exists(os.path.join(target_path, 'spec_builder_config_local.ini')):
+        source_file_config_path = os.path.join(target_path, 'spec_builder_config_local.ini')
+
+    source_file_config = cr.read_config_file(source_file_config_path)  # type: ignore
+    local_config_entry = 'source_file_settings'
+    source_file_path = source_file_config[local_config_entry]['source_file_path']
+    subject_area_name = source_file_config[local_config_entry]['subject_area_name']
+    null_value = source_file_config[local_config_entry]['null_value']
+    wrk_schema = source_file_config[local_config_entry]['wrk_schema']
+    stg_schema = source_file_config[local_config_entry]['stg_schema']
+    tgt_schema = source_file_config[local_config_entry]['tgt_schema']
+
+    # loop through files to process
+    source_file_path_type, files_to_process = get_files_to_process(source_file_path)
+
+    if source_file_path_type == 'file' and any(not var for var in [subject_area_name, wrk_schema, stg_schema, tgt_schema]):
+        print("The following values in 'spec_builder_config.ini' are required:\nsubject_area_name\nwrk_schema\nstg_schema\ntgt_schema")
+        sys.exit(1)
+
+    if source_file_path_type == 'folder' and any(not var for var in [wrk_schema, stg_schema, tgt_schema]):
+        print("The following values in 'spec_builder_config.ini' are required:\nwrk_schema\nstg_schema\ntgt_schema")
+        sys.exit(1)
+
+    for files_to_process in files_to_process:
+
+        if source_file_path_type == 'folder':
+            subject_area_name = string_utils.cleanse_string(os.path.splitext(os.path.basename(files_to_process))[0], title_to_snake_case=True)
+            source_file_path = files_to_process
+        wrk_table = source_file_config[local_config_entry]['wrk_table']
+        if wrk_table == '' or source_file_path_type == 'folder':
+            wrk_table = 'wrk_' + subject_area_name
+        stg_table = source_file_config[local_config_entry]['stg_table']
+        if stg_table == '' or source_file_path_type == 'folder':
+            stg_table = 'stg_' + subject_area_name
+        tgt_table = source_file_config[local_config_entry]['tgt_table']
+        if tgt_table == '' or source_file_path_type == 'folder':
+            tgt_table = subject_area_name
+
+        if not source_file_path.lower().endswith(('.csv', '.txt', '.tsv', '.dat', '.tab')):
+            print("Source file must be one of the following: csv, txt, tsv, dat, tab")
+            sys.exit(1)
+
+        file_encoding = de.detect_encoding(source_file_path)  # type: ignore
+
+        # Create spec data frame
+        columns = [
+            'Action', 'Schema', 'Target Table', 'Target Field', 'Comment',
+            'Type', 'Char Encoding', 'PK', 'FK', 'Source System', 'Source Table', 'Source Field(s)'
+        ]
+
+        df_spec = pd.DataFrame(columns=columns)
+
+        # Read flat file into data frame
+        with open(source_file_path, "r", encoding=file_encoding) as file:
+            first_row = file.readline().strip()
+            
+        if "\t" in first_row:
+            delimiter = "\t"
+        elif "|" in first_row:
+            delimiter = "|"
+        else:
+            delimiter = ","
+
+        df_source = pd.read_csv(
+            source_file_path,
+            delimiter=delimiter,
+            encoding=file_encoding,
+            na_values=null_value,
+            dtype=str,
+            quoting=csv.QUOTE_ALL
+            #compression='infer'
+        )
+
+        headers_list = df_source.columns.tolist()
+
+        # Attempt to convert each field to an appropriate type
+        for col in headers_list:
+            if df_source[col].notnull().any():
+                try:
+                    df_source[col] = df_source[col].astype(float)
+                except ValueError:
+                    try:
+                        df_source[col] = pd.to_datetime(df_source[col], errors='raise')
+                    except ValueError:
+                        pass
+
+        build_wrk_spec()
+
+        wrk_df = df_spec[df_spec['Source System'] == 'Flat File'].copy()
+
+        build_stg_spec()
+
+        stg_df = df_spec[(df_spec['Schema'] == stg_schema) & (~df_spec['Target Field'].isna())].copy()
+
+        build_tgt_spec()
+
+        tgt_df = df_spec[(df_spec['Schema'] == tgt_schema) & (~df_spec['Target Field'].isna())].copy()
+
+        target_path = f'{current_dir}/generated_files/{subject_area_name}'
+
+        os.makedirs(f'{current_dir}/generated_files', exist_ok=True)
+        os.makedirs(target_path, exist_ok=True)
+
+        spec_path = f'{target_path}/mapping_spec_{subject_area_name}.xlsx'
+
+        # Output spec file
+        df_spec.to_excel(spec_path, index=False)
+
+        # Output relevant file_config fields
+        filename, file_extension = os.path.splitext(source_file_path)
+
+        delimiter_output = delimiter.replace("\t", "\\t")
+
+        with open(f'{target_path}/{subject_area_name}_file_config.txt', 'w') as f:
+            f.write(f"extension = {file_extension[1:]}\n")
+            f.write(f"delimiter = {delimiter_output}\n")
+            f.write(f"encoding = {file_encoding}\n")
+            f.write(f"null_value = {null_value}\n")
+
+        create_scripts(os.path.normpath(spec_path))
+
+        #%%
