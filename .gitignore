@@ -37,6 +37,10 @@ tests/*
 global_variables.py
 # Dockerfile
 # entrypoint.sh
+src/spec_builder/**
+# !src/spec_builder/generated_files/.gitkeep
+# !src/spec_builder/generated_files
+!src/spec_builder/spec_builder.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

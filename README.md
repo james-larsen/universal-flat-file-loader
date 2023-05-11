@@ -319,7 +319,7 @@ python3 /opt/python_scripts/flat_file_loader/src/main.py
 
 ## File Analyzer
 
-A special utility script can be found at **./src/utils/spec_builder.py**.  Its purpose is to help you analyze a given flat file, and build a starting point for the spec and SQL scripts used by the application, as well as the stage and target table creation scripts for your target database.  It is designed to be run directly, rather than to be called by the main program.
+A special utility script can be found at **./src/spec_builder/spec_builder.py**.  Its purpose is to help you analyze a given flat file, and build a starting point for the spec and SQL scripts used by the application, as well as the stage and target table creation scripts for your target database.  It is designed to be run directly, rather than to be called by the main program.
 
 **Usage:**
 
@@ -347,7 +347,7 @@ tgt_schema = my_tgt_schema
 tgt_table = my_target_table
 ```
 
-Once this is filled out, execute **./src/utils/spec_builder.py**.  This will create a "generated_files" subfolder in the utils folder if it does not already exist.  The following files will be placed in the folder\
+Once this is filled out, execute **./src/spec_builder/spec_builder.py**.  This will create a "generated_files" subfolder in the spec_builder folder if it does not already exist.  The following files will be placed in the folder\
 *Note: All .sql files may need to be adjusted slightly if target db is not PostgreSQL*
 
 * mapping_spec_*subject_area_name*.xlsx - The necessary details to tell the application how to read and map your flat file.  It lacks some of the formatting from the "template" version, but is functional as is, or can be pasted into a formatted version of the spec

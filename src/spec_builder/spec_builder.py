@@ -2,7 +2,7 @@
 #%%
 import sys
 import os
-import pathlib
+# import pathlib
 import pandas as pd
 from datetime import datetime, time
 import csv
@@ -279,7 +279,8 @@ while not os.path.basename(current_dir) == package_root_name:
     current_dir = os.path.dirname(current_dir)
 
 # remove folders to the right of the target folder
-target_path = os.path.join(current_dir, 'src', 'config')
+# target_path = os.path.join(current_dir, 'src', 'config')
+target_path = os.path.join(os.path.dirname(current_dir), 'config')
 
 source_file_config_path = os.path.join(target_path, 'spec_builder_config.ini')
 
@@ -369,6 +370,8 @@ build_tgt_spec()
 tgt_df = df_spec[(df_spec['Schema'] == tgt_schema) & (df_spec['Target Field'].notnull())].copy()
 
 #%%
+
+os.makedirs('generated_files', exist_ok=True)
 
 # Output spec file
 df_spec.to_excel(f'generated_files/mapping_spec_{subject_area_name}.xlsx', index=False)
