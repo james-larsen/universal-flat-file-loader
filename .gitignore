@@ -1,4 +1,7 @@
 src/utils/__pycache__
+[Ignore]/
+src/utils/[Outdated]/**
+*src/utils/[Outdated]/*.py
 *_local*.ini
 src/app_config_local.ini
 src/connections_config_local.ini
@@ -18,7 +21,6 @@ set_keyring_passwords.py
 path_setup.py
 !src/utils/generated_files/
 src/utils/generated_files/*
-src/utils/*.py
 !src/utils/generate_config.py
 !src/utils/spec_builder.py
 !src/utils/__init__.py
@@ -26,8 +28,6 @@ src/utils/*.py
 /data/Logs/*
 /data/Upload/*
 !/data/
-[Ignore]/
-src/utils/[Outdated]/
 /.vscode/**
 launch.json
 ~$*.xls*
