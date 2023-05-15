@@ -12,6 +12,8 @@ import datetime
 import warnings
 import pandas as pd
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+import traceback
 import json
 # pylint: disable=import-error
 # from utils.build_engine import build_engine
@@ -115,9 +117,49 @@ def read_file_config_settings(input_file_config_path):
         int(file_config[config_entry]['archive_expire_days'])
         )
 
-def run_sql_statements(input_support_path):
-    """Run available SQL statements"""
+def connection_test(engine, schema):
+    """Confirm database connection works and wrk_schema can be accessed"""
     try:
+        with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+            create_table_statement = f"CREATE TABLE {schema}.access_test (id INT)"
+            conn.execute(create_table_statement)
+
+            insert_statement = f"INSERT INTO {schema}.access_test (id) VALUES (1)"
+            conn.execute(insert_statement)
+
+            select_statement = f"SELECT * FROM {schema}.access_test"
+            result = conn.execute(select_statement)
+            records = result.fetchall()
+
+            drop_table_statement = f"DROP TABLE {schema}.access_test"
+            conn.execute(drop_table_statement)
+            return 'Success'
+    except OperationalError as e:
+        full_error_message = traceback.format_exc()
+        error_message = extract_from_error(full_error_message, 'sqlalchemy.exc')
+        if error_message:
+            return error_message
+        else:
+            return full_error_message
+
+def extract_from_error(full_error_message, error_keyword):
+    """Extract a single line from error message based on keyword"""
+    
+    error_lines = full_error_message.splitlines()
+    error_message = next((line for line in error_lines if error_keyword in line), None)
+    
+    return error_message
+
+def run_sql_statements(input_support_path, folder):
+    """Run available SQL statements"""
+
+    global job_errors_or_warnings
+
+    sql_errors = 0
+    
+    try:
+        exception_handled = False
+        
         script_patterns = [
             {'script_type': 'WRK to STG Load Scripts', 'pattern': 'wrk to stg load*.sql*'},
             {'script_type': 'STG Post-Load Scripts', 'pattern': 'stg post-load*.sql*'},
@@ -142,28 +184,48 @@ def run_sql_statements(input_support_path):
                             else: 
                                 script_path_length -= 1
                                 logger.error('Script "%s" referenced by shortcut "%s" not found', shortcut.Targetpath, script_path[i])
+                                job_errors_or_warnings += 1
                                 continue
                         else:
                             script_path_length -= 1
                             logger.info('OS is not windows, skipping script: "%s"', script_path[i])
                             continue
+                    print(f'    Running script: "{script}"')
                     logger.info('Running script: "%s"', script)
                     file_reader = open(pathlib.Path(script), 'r', encoding='utf-8')
                     full_sql_statement = file_reader.read()
                     file_reader.close()
                     sql_statements = clean_sql_statement(full_sql_statement)
-                    for sql_statement in sql_statements:
-                        print(sql_statement)
-                        logger.debug('Running SQL statement: \n"%s"', sql_statement)
-                        with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
-                            conn.execute(text(sql_statement))
-                        #engine.execute(sql_statement, schema=schema)
+                    for i, sql_statement in enumerate(sql_statements):
+                        exception_handled = False
+                        try:
+                            # print(sql_statement)
+                            print(f'        Running SQL statement number {i + 1}')
+                            logger.debug('Running SQL statement: \n"%s"', sql_statement)
+                            with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+                                conn.execute(text(sql_statement))
+                            #engine.execute(sql_statement, schema=schema)
+                            print('            Success')
+                        except Exception as e: # pylint: disable=broad-except
+                            full_error_message = traceback.format_exc()
+                            error_message = extract_from_error(full_error_message, 'sqlalchemy.exc')
+                            print(f'            Error running SQL statement, see log for more details: "{error_message}"')
+                            logger.error('Error running SQL statement:\n%s', full_error_message)
+                            job_errors_or_warnings += 1
+                            sql_errors += 1
+                            exception_handled = True
             if script_path_length == 0:
-                print(f'No "{script_type}" present')
+                print(f'    No "{script_type}" present')
                 logger.info('No "%s" matching pattern "%s" present', script_type, script_pattern)
     except Exception as e: # pylint: disable=broad-except
-        print(e)
-        logger.error('Error encountered:\n', exc_info=True)
+        if not exception_handled:
+            print(e)
+            logger.error('Error encountered:\n', exc_info=True)
+            job_errors_or_warnings += 1
+            sql_errors += 1
+
+    if sql_errors > 0:
+        folder['folderSQLErrors'] = f'ERROR: Folder encountered {sql_errors} errors while running SQL statements, see log for details'
 
 def delete_expired_files(target_folder, archive_expire_days):
     """Delete archive files and empty folders based on retention policy"""
@@ -200,7 +262,7 @@ def delete_expired_files(target_folder, archive_expire_days):
 
 def log_metrics():
     """Log performance metrics for loads"""
-    global job_name, job, folders
+    global job_name, job, folders, load_summary_file_path
     job_end_time, job_end_time_string, job_end_time_log = get_current_timestamp()
     days, hours, minutes, seconds, display_string = get_duration(job_start_time, job_end_time)
     job['jobName'] = job_name
@@ -215,7 +277,6 @@ def log_metrics():
         job['jobBadFiles'] = str(format(job_bad_files, ','))
     job['folders'] = folders
 
-    load_summary_file_path = str(pathlib.Path(log_file_path) / f'{job_start_time_string}_flat_file_loader_load_summary.json')
     with open(load_summary_file_path, 'w') as f:
         json.dump(job, f, indent=4, default=str)
 
@@ -266,7 +327,7 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
             pass
 
     break_out_flag = False # pylint: disable=invalid-name
-    global job_folders_processed, job_files_loaded, job_bad_files
+    global job_folders_processed, job_files_loaded, job_bad_files, job_errors_or_warnings
     folder_files_loaded = 0 # pylint: disable=invalid-name
     folder_bad_files = 0 # pylint: disable=invalid-name
     folder_records_loaded = 0 # pylint: disable=invalid-name
@@ -286,6 +347,13 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
             
             file_records_loaded = 0
             global job_records_loaded
+
+            # get raw row count
+            with open(file_path, "rb"):
+                with open(file_path, "r", encoding=encoding) as csvfile:
+                    original_row_count = sum(1 for line in csvfile)
+                    if original_row_count > 0:
+                        original_row_count -= 1
             
             for n, chunk in (enumerate(
                 pd.read_csv(file_path,
@@ -352,6 +420,7 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
         except Exception as e: # pylint: disable=broad-except
             print(e)
             logger.error('Error encountered:', exc_info=True)
+            job_errors_or_warnings += 1
             break_out_flag = True # pylint: disable=invalid-name
             
         if break_out_flag:
@@ -359,9 +428,23 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
                 os.makedirs(bad_files_folder)
             folder_bad_files += 1
             job_bad_files += 1
+            file['fileName'] = load_file
+            file['fileStart'] = file_start_time_log
             new_path = pathlib.Path(bad_files_folder / load_file)
             pathlib.Path(file_path).rename(new_path)
+            file['fileError'] = f'ERROR: File not loaded.  Moved to "{new_path}".  See log for more details'
             continue
+        
+        # attempt more accurate way of determine records loaded
+        count_sql_statement = f'select count(*) from {schema}.{wrk_table};'
+        try:
+            with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+                result = conn.execute(text(count_sql_statement))
+                record_count = result.scalar()
+                if record_count:
+                    file_records_loaded = record_count
+        except Exception as e: # pylint: disable=broad-except
+            pass
         
         folder_files_loaded += 1
         folder_records_loaded += file_records_loaded
@@ -370,25 +453,34 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
         file_end_time, file_end_time_string, file_end_time_log = get_current_timestamp()
         days, hours, minutes, seconds, display_string = get_duration(file_start_time, file_end_time)
         file['fileName'] = load_file
+        file['fileRawRecords'] = str(format(original_row_count, ','))
         file['fileRecordsLoaded'] = str(format(file_records_loaded, ','))
         file['fileStart'] = file_start_time_log
         file['fileEnd'] = file_end_time_log
         file['fileTotalDuration'] = display_string
+        if file_records_loaded != original_row_count and file_records_loaded > 0:
+            file_records_loaded_string = str(format(file_records_loaded, ','))
+            original_row_count_string = str(format(original_row_count, ','))
+            loaded_rows_difference_string = str(format(original_row_count - file_records_loaded, ','))
+            file['fileLoadError'] = f'ERROR: {file_records_loaded_string} records loaded of {original_row_count_string} in source file ({loaded_rows_difference_string} records difference)'
+            job_errors_or_warnings += 1
+            logger.info('%s records loaded successfully.  WARNING: This is less than the source file contained (%s records).', format(file_records_loaded, ','), format(original_row_count_string, ','))
+        else:
+            logger.info('%s records loaded successfully', format(file_records_loaded, ','))
         files.append(dict(file))
 
-        logger.info('%s records loaded successfully', format(file_records_loaded, ','))
-        
         # Archive file
         if archive_flag:
-            if not os.path.exists(archive_file_path):
-                os.makedirs(archive_file_path)
-            archive_folder = pathlib.Path(archive_file_path + os.sep + load_folder + os.sep + job_start_time_string)
-            if not os.path.exists(archive_folder):
-                os.makedirs(archive_folder)
-            new_path = pathlib.Path(archive_folder / load_file)
-            # Update the modification timestamp of the file
-            pathlib.Path(file_path).touch()
-            shutil.move(file_path, new_path)
+            archive_file(file_path, load_folder, load_file)
+            # if not os.path.exists(archive_file_path):
+            #     os.makedirs(archive_file_path)
+            # archive_folder = pathlib.Path(archive_file_path + os.sep + load_folder + os.sep + job_start_time_string)
+            # if not os.path.exists(archive_folder):
+            #     os.makedirs(archive_folder)
+            # new_path = pathlib.Path(archive_folder / load_file)
+            # # Update the modification timestamp of the file
+            # pathlib.Path(file_path).touch()
+            # shutil.move(file_path, new_path)
         
         # # Archive file
         # if archive_flag:
@@ -405,7 +497,6 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
     if folder_files_loaded > 0:
         job_folders_processed += 1
         job_files_loaded += folder_files_loaded
-        run_sql_statements(support_path)
         
         global folder, folders
         folder_end_time, folder_end_time_string, folder_end_time_log = get_current_timestamp()  # type: ignore
@@ -418,6 +509,7 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
         folder['folderTotalDuration'] = display_string
         if folder_bad_files > 0:
             folder['folderBadFiles'] = str(format(folder_bad_files, ','))
+        run_sql_statements(support_path, folder)
         folder['files'] = files
         folders.append(dict(folder))
 
@@ -469,6 +561,20 @@ def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk
         if logging_flag:
             log_metrics()
 
+def archive_file(file_path, load_folder, load_file):
+    """Archive loaded file"""
+    global archive_file_path, job_start_time_string
+
+    if not os.path.exists(archive_file_path):
+        os.makedirs(archive_file_path)
+    archive_folder = pathlib.Path(archive_file_path + os.sep + load_folder + os.sep + job_start_time_string)
+    if not os.path.exists(archive_folder):
+        os.makedirs(archive_folder)
+    new_path = pathlib.Path(archive_folder / load_file)
+    # Update the modification timestamp of the file
+    pathlib.Path(file_path).touch()
+    shutil.move(file_path, new_path)
+
 
 #%%
 
@@ -476,6 +582,7 @@ job_start_time, job_start_time_string, job_start_time_log = get_current_timestam
 os_platform = platform.system()
 # support_path = ''
 logger = logging.getLogger()
+fatal_error = False
 
 # Job performance json
 job_name = 'flat_file_loader'
@@ -486,6 +593,7 @@ job_folders_processed = 0
 job_files_loaded = 0
 job_bad_files = 0
 job_records_loaded = 0
+job_errors_or_warnings = 0
 
 # Determine project folder
 current_dir = os.getcwd()
@@ -498,20 +606,14 @@ config_path = pathlib.Path(project_dir + '/src/config')
 app_config_path = config_path / "app_config.ini"
 load_file_path, archive_file_path, log_file_path, password_method, password_access_key, password_secret_key, password_endpoint_url, password_region_name, password_password_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days = read_app_config_settings(app_config_path)
 
+load_summary_file_path = str(pathlib.Path(log_file_path) / f'{job_start_time_string}_flat_file_loader_load_summary.json')
+
 connection_config_path = config_path / "connections_config.ini"
 db_target_config = 'target_connection' # Allow user to provide via parameter - future enhancement
 
 #%%
 if __name__ == '__main__':
     # globals().update(setup_globals())
-    # (job_start_time, job_start_time_string, job_start_time_log, os_platform, support_path, logger, job_name, job, folders, folder, job_folders_processed, job_files_loaded, job_bad_files, job_records_loaded, db_target_config, engine, schema) = setup_globals().values()
-    # app_config_path = pathlib.Path(os.getcwd() + '/config/app_config.ini')
-    connect_type, server_address, server_port, database_name, schema, user_name, secret_key = read_connection_config_settings(connection_config_path, db_target_config)
-    db_password = pw.get_password(password_method, secret_key, access_key=password_access_key, secret_key=password_secret_key, endpoint_url=password_endpoint_url, region_name=password_region_name, password_path=password_password_path)
-    
-    # engine, schema = build_engine(pathlib.Path(connection_config_path), db_target_config, password_method)  # type: ignore
-
-    engine = build_engine(connect_type, server_address, server_port, database_name, user_name, db_password)#, schema)
 
     # Logger settings
     if not os.path.exists(log_file_path):
@@ -530,8 +632,28 @@ if __name__ == '__main__':
     logger.info('Start script: %s', current_script_path)
     logger.info('Build engine using config entry: %s', db_target_config)
 
-    process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger)
+    # (job_start_time, job_start_time_string, job_start_time_log, os_platform, support_path, logger, job_name, job, folders, folder, job_folders_processed, job_files_loaded, job_bad_files, job_records_loaded, db_target_config, engine, schema) = setup_globals().values()
+    # app_config_path = pathlib.Path(os.getcwd() + '/config/app_config.ini')
+    connect_type, server_address, server_port, database_name, schema, user_name, secret_key = read_connection_config_settings(connection_config_path, db_target_config)
+    db_password = pw.get_password(password_method, secret_key, account_name=user_name, access_key=password_access_key, secret_key=password_secret_key, endpoint_url=password_endpoint_url, region_name=password_region_name, password_path=password_password_path)
+    
+    # engine, schema = build_engine(pathlib.Path(connection_config_path), db_target_config, password_method)  # type: ignore
 
-    engine.dispose()
+    engine = build_engine(connect_type, server_address, server_port, database_name, user_name, db_password)#, schema)
+    connection_result = connection_test(engine, schema)
+    if connection_result != 'Success':
+        fatal_error = True
+        logger.error(f'Error accessing database: \n{connection_result}')
+        print(f'Fatal Error: \n{connection_result}')
+    
+    if not fatal_error:
+        process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger)
+
+        if job_errors_or_warnings > 0:
+            print(f'ERRORS OR WARNINGS ENCOUNTERED\nSee the below files for details:\n{log_file}\n{load_summary_file_path}')
+        else:
+            print(f'Job completed successfully\nSee the below files for details:\n{log_file}\n{load_summary_file_path}')
+
+        engine.dispose()
 
 # %%

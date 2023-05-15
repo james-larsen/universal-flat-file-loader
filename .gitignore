@@ -14,7 +14,7 @@ src/utils/analyze_load_file.py
 */Upload/**
 */S3/Upload/**
 */S3/Config/**
-*_local.*
+*_local*.*
 main*.py
 !main.py
 set_keyring_passwords.py
