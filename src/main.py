@@ -14,6 +14,7 @@ import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 import traceback
+import re
 import json
 # pylint: disable=import-error
 # from utils.build_engine import build_engine
@@ -40,6 +41,7 @@ from nexus_utils.datetime_utils import get_current_timestamp, get_duration
 # import_relative(package_root_name, 'src.utils.current_timestamp', 'get_current_timestamp')
 from nexus_utils.datetime_utils import get_current_timestamp
 from nexus_utils import password_utils as pw
+from nexus_utils import string_utils
 # from flat_file_loader.src.global_variables import setup_globals
 # pylint: enable=import-error
 
@@ -121,17 +123,17 @@ def connection_test(engine, schema):
     """Confirm database connection works and wrk_schema can be accessed"""
     try:
         with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
-            create_table_statement = f"CREATE TABLE {schema}.access_test (id INT)"
+            create_table_statement = text(f"CREATE TABLE {schema}.access_test (id INT)")
             conn.execute(create_table_statement)
 
-            insert_statement = f"INSERT INTO {schema}.access_test (id) VALUES (1)"
+            insert_statement = text(f"INSERT INTO {schema}.access_test (id) VALUES (1)")
             conn.execute(insert_statement)
 
-            select_statement = f"SELECT * FROM {schema}.access_test"
+            select_statement = text(f"SELECT * FROM {schema}.access_test")
             result = conn.execute(select_statement)
             records = result.fetchall()
 
-            drop_table_statement = f"DROP TABLE {schema}.access_test"
+            drop_table_statement = text(f"DROP TABLE {schema}.access_test")
             conn.execute(drop_table_statement)
             return 'Success'
     except OperationalError as e:
@@ -199,12 +201,26 @@ def run_sql_statements(input_support_path, folder):
                     for i, sql_statement in enumerate(sql_statements):
                         exception_handled = False
                         try:
-                            # print(sql_statement)
-                            print(f'        Running SQL statement number {i + 1}')
-                            logger.debug('Running SQL statement: \n"%s"', sql_statement)
+                            statement_action = ''
+                            if re.search(r'(?i)\bUPDATE\b[\s\n]', sql_statement):
+                                statement_action = 'updated'
+                            elif re.search(r'(?i)\bDELETE\b[\s\n]', sql_statement):
+                                statement_action = 'deleted'
+                            elif re.search(r'(?i)\bINSERT\b[\s\n]', sql_statement):
+                                statement_action = 'inserted'
                             with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
-                                conn.execute(text(sql_statement))
-                            #engine.execute(sql_statement, schema=schema)
+                                result_proxy = conn.execute(text(sql_statement))
+                            # print(sql_statement)
+                            print_statement = f'        Running SQL statement number {i + 1}'
+                            log_statement = f'Running SQL statement: \n"{sql_statement}"'
+                            if result_proxy.rowcount and statement_action:
+                                affected_rows_string = str(format(result_proxy.rowcount, ','))
+                                print_statement += f': {affected_rows_string} rows {statement_action}'
+                                log_statement += f'\n\t\t{affected_rows_string} rows {statement_action}'
+                            print(print_statement)
+                            # logger.debug('Running SQL statement: \n"%s"', sql_statement)
+                            logger.debug(log_statement)
+                            #engine.execute(text(sql_statement), schema=schema)
                             print('            Success')
                         except Exception as e: # pylint: disable=broad-except
                             full_error_message = traceback.format_exc()
@@ -305,6 +321,8 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
     df_spec.columns = df_spec.columns.str.replace(' ', '_').str.lower()
     for char in ['(', ')', '[', ']']:
         df_spec.columns = df_spec.columns.str.replace(char, '', regex= False)
+
+    # df_spec.columns = df.columns.map(lambda col: string_utils.cleanse_string(col, title_to_snake_case=True))
     
     df_columns = df_spec.query("source_system == 'Flat File'").copy()
 
@@ -319,7 +337,7 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
             drop_sql_statement = f"drop table if exists {schema}.{wrk_table};"
             with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
                 conn.execute(text(drop_sql_statement))
-            #engine.execute(drop_sql_statement, schema=schema)
+            #engine.execute(text(drop_sql_statement), schema=schema)
             logger.info('Running SQL statement: "%s"', drop_sql_statement)
         except Exception as e: # pylint: disable=broad-except
             print(e)
@@ -360,7 +378,8 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
                     sep=delimiter,
                     dtype=str,
                     encoding=encoding,
-                    na_values={'', null_value},
+                    na_values={null_value, '', '#N/A', 'NaN', 'NULL', 'null', 'Null', '<NULL>', '[NULL]', '(NULL)', '#VALUE!', '#DIV/0!', '#REF!', '#NUM!', '#NAME?'},
+                    keep_default_na=False,
                     chunksize=file_read_chunk_size,
                     quoting=quoting,
                     # quotechar='"',
@@ -383,6 +402,8 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
                 df.columns = df.columns.str.replace(' ', '_').str.lower()
                 for char in ['(', ')', '[', ']']:
                     df.columns = df.columns.str.replace(char, '', regex= False)
+
+                # df.columns = df.columns.map(lambda col: string_utils.cleanse_string(col, title_to_snake_case=True))
                 
                 df['load_file_name'] = file_path.name
                 df['load_timestamp'] = job_start_time

@@ -28,11 +28,13 @@ src/utils/generated_files/*
 /data/Logs/*
 /data/Upload/*
 !/data/
+docker/*/*.env
 /.vscode/**
 launch.json
 ~$*.xls*
 
 # Temporary exclusions
+docker/**
 tests/*
 global_variables.py
 # Dockerfile

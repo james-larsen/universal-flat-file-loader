@@ -1,7 +1,15 @@
 #%%
 import os
+import glob
 import argparse
 import spec_builder
+
+def call_spec_builder(spec_file_path):
+    if os.path.isdir(spec_file_path):
+        for file_path in glob.glob(os.path.join(spec_file_path, 'mapping_spec_*.xls*')):
+            spec_file_path = file_path
+    
+    spec_builder.create_scripts(os.path.normpath(spec_file_path))
 
 #%%
 
@@ -15,7 +23,7 @@ if __name__ == '__main__':
     else:
         parser.print_help()
 
-    # file_path = r'c:\Data Projects\Development\projects\flat_file_loader\src\spec_builder/generated_files/currency/mapping_spec_currency.xlsx'
+    # spec_builder.create_scripts(os.path.normpath(file_path))
+    call_spec_builder(file_path)
 
-    spec_builder.create_scripts(os.path.normpath(file_path))
     #%%
