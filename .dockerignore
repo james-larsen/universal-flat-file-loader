@@ -1,44 +1,46 @@
-src/utils/__pycache__
-[Ignore]/
+__pycache__
+**/src/utils/__pycache__
+**/[Ignore]
+.git
+.vscode
 references
-src/utils/[Outdated]/**
-*src/utils/[Outdated]/*.py
-*_local*.ini
-src/app_config_local.ini
-src/connections_config_local.ini
-src/utils/JSON Test.py
-src/utils/analyze_load_file.py
-*/Logs/**
-*/S3/Logs/**
-*/Archive/**
-*/S3/Archive/**
-*/Upload/**
-*/Upload Template/**
-*/S3/Upload/**
-*/S3/Config/**
-*_local*.*
-main*.py
-!main.py
+**/src/utils/[Outdated]/**
+**/*src/utils/[Outdated]/*.py
+**/*_local*.ini
+**/src/app_config_local.ini
+**/src/connections_config_local.ini
+**/src/utils/JSON Test.py
+**/src/utils/analyze_load_file.py
+**/Logs/**
+**/S3/Logs/**
+**/Archive/**
+**/S3/Archive/**
+**/Upload/**
+**/Upload Template
+**/S3/Upload/**
+**/S3/Config/**
+**/*_local*.*
+**/main*.py
+!**/main.py
 set_keyring_passwords.py
 path_setup.py
-!src/utils/generated_files/
-src/utils/generated_files/*
-!src/utils/generate_config.py
-!src/utils/spec_builder.py
-!src/utils/__init__.py
-/data/Archive/*
-/data/Logs/*
-/data/Upload/*
-!/data/
-docker/*/*.env
-/.vscode/**
+!**src/utils/generated_files/
+**/src/utils/generated_files/*
+!**src/utils/generate_config.py
+!**src/utils/spec_builder.py
+!**src/utils/__init__.py
+**/data/Archive/*
+**/data/Logs/*
+**/data/Upload/*
+!**/data/
+**/docker/*/*.env
 launch.json
 ~$*.xls*
 
 # Temporary exclusions
 docker/**
 tests/*
-global_variables.py
+**/global_variables.py
 # Dockerfile
 # entrypoint.sh
 src/spec_builder/**
@@ -49,15 +51,18 @@ src/spec_builder/**
 !src/spec_builder/__init__.py
 
 # Byte-compiled / optimized / DLL files
-__pycache__/
+**/__pycache__
 *.py[cod]
 *$py.class
 
 # Distribution / packaging
 .Python
-build/
+**/*.egg-info
+*.egg-info
+*.egg-info/
+**/build
 develop-eggs/
-dist/
+**/dist
 downloads/
 eggs/
 .eggs/

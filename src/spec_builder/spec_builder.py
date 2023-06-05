@@ -28,95 +28,6 @@ warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
 #%%
 
-# def analyze_dataframe(df, target_path):
-#     analysis_dict = {}
-
-#     for col in df.columns:
-#         column_dict = {}
-
-#         # Add column header
-#         column_dict['Column'] = col
-
-#         # Check column data type
-#         col_dtype = df[col].dtype
-#         if pd.api.types.is_string_dtype(col_dtype):
-#             # For string columns, calculate the maximum length
-#             max_size = df[col].str.len().max()
-#             max_size_string = str(int(max_size)) if not pd.isna(max_size) else ''
-#             column_dict['Max Size'] = f'Max Length: {max_size_string}'
-#             column_dict['Type'] = 'String'
-#         elif pd.api.types.is_numeric_dtype(col_dtype):
-#             if pd.api.types.is_integer_dtype(col_dtype):
-#                 # For integer columns, convert the maximum value to int
-#                 max_value = df[col].max()
-#                 max_value_string = str(int(max_value)) if not pd.isna(max_value) else ''
-#                 column_dict['Max Size'] = f'Max Value: {max_value_string}'
-#             else:
-#                 # For other numeric columns (float), store the maximum value as is
-#                 max_value_string = str(df[col].max())
-#                 column_dict['Max Size'] = f'Max Value: {max_value_string}'
-#             column_dict['Type'] = 'Numeric'
-
-#         # Get distinct values and their counts
-#         value_counts = df[col].value_counts()
-#         if len(value_counts) > 50:
-#             # If there are more than 50 distinct values, store top 50 and "More than 50 distinct values"
-#             top_50_values = value_counts.nlargest(50).to_dict()
-#             # top_50_values['More than 50 distinct values'] = str(len(value_counts) - 50)
-#             top_50_values['More than 50 distinct values'] = ''
-#             column_dict['Distinct Values'] = {str(k): str(int(v)) if v != '' else str(v) for k, v in top_50_values.items()}
-#         else:
-#             column_dict['Distinct Values'] = {str(k): str(int(v)) if v != '' else str(v) for k, v in value_counts.items()}
-
-#         # Add the column dictionary to the analysis dictionary
-#         analysis_dict[col] = column_dict
-
-#     # print(json.dumps(analysis_dict, indent=4))
-
-#     # return analysis_dict
-
-#     write_analysis_to_excel(analysis_dict, target_path)
-
-# def write_analysis_to_excel(analysis_dict, file_path):
-#     file_path = os.path.join(file_path, 'Distinct Values Analysis.xlsx')
-
-#     # Create a workbook and select the active sheet
-#     wb = Workbook()
-#     ws = wb.active
-
-#     # Initialize the start column index
-#     start_column_index = 1
-
-#     # Iterate over each column in the analysis dictionary
-#     for col, col_dict in analysis_dict.items():
-#         # Write the "Column" and "Max Size" to the Excel file
-#         ws.cell(row=1, column=start_column_index, value=col_dict['Column'])
-#         if 'Max Size' in col_dict:
-#             ws.cell(row=1, column=start_column_index + 1, value=col_dict['Max Size'])
-
-#         ws.cell(row=2, column=start_column_index, value='Distinct Values')
-#         ws.cell(row=2, column=start_column_index + 1, value='Occurrences')
-
-#         # Write the "Distinct Values" to the Excel file
-#         distinct_values = col_dict['Distinct Values']
-#         for row_num, (key, value) in enumerate(distinct_values.items(), start=3):
-#             ws.cell(row=row_num, column=start_column_index, value=key)
-#             ws.cell(row=row_num, column=start_column_index + 1, value=value)
-
-#         # Increment the start column index for the next iteration
-#         start_column_index += 3
-
-#     ws.freeze_panes = 'A3'
-    
-#     # Save the workbook
-#     wb.save(file_path)
-
-#     df_results = pd.DataFrame(wb.active.values)
-
-#     df_results.to_excel(file_path, sheet_name='Distinct Values', index=False, header=False)
-
-#     print(f"Distinct Values Analysis has been written to {file_path}")
-
 def get_wrk_schema_user(path):
     """Retrieve wrk schema user"""
 
@@ -155,14 +66,19 @@ def get_files_to_process(path):
 
     return source_file_path_type, files_to_process
 
-def get_dtype(dtype, value):
+def get_dtype(dtype, first_value, all_values):
     if dtype == "datetime64[ns]":
-        dt = pd.to_datetime(value, errors='coerce')
+        dt = pd.to_datetime(first_value, errors='coerce')
         if not pd.isnull(dt) and dt.time() != time(0, 0, 0):
             return "timestamp"
         else:
             return "date"
     elif dtype == "float":
+        try:
+            for value in all_values:
+                float(value)
+        except ValueError:
+            return "string"
         return "float64"
     else:
         return "string"
@@ -233,7 +149,7 @@ def format_field(string):
 
 def build_wrk_spec():
     def clean_field(field_name):
-        field_name = field_name.replace(' ', '_').lower()
+        field_name = field_name.replace(' ', '_').replace('-', '_').lower()
         for char in ['(', ')', '[', ']']:
             field_name = field_name.replace(char, '')
         return field_name
@@ -262,9 +178,10 @@ def build_wrk_spec():
         first_valid_index = df_source[header].first_valid_index()
         if first_valid_index is not None:
             first_value = df_source.loc[first_valid_index, header]
+            distinct_values = df_source[header].unique()
         else:
             first_value = None
-        type = get_dtype(dtype, first_value)
+        type = get_dtype(dtype, first_value, distinct_values)
 
         detail_record = {
             'Action': 'Add Field',
@@ -408,9 +325,20 @@ def build_tgt_spec():
         df_spec.loc[len(df_spec)] = detail_record
 
     # Add audit records
+    if not any(df_spec['Target Field'] == 'modify_date_time'):
+        detail_record.update({
+            'Target Field': 'modify_date_time',
+            'Type': 'timestamp(0)',
+            'Source System': 'System Generated',
+            'Source Table': 'System Generated',
+            'Source Field(s)': 'System Generated'
+        })
+        df_spec.loc[len(df_spec)] = detail_record
+
     detail_record.update({
         'Target Field': 'load_file_name',
         'Type': 'varchar(255)',
+        'Source System': 'DB Internal',
         'Source Table': stg_table,
         'Source Field(s)': 'load_file_name'
     })
@@ -419,6 +347,7 @@ def build_tgt_spec():
     detail_record.update({
         'Target Field': 'load_timestamp',
         'Type': 'timestamp(0)',
+        'Source System': 'DB Internal',
         'Source Table': stg_table,
         'Source Field(s)': 'load_timestamp'
     })
@@ -430,118 +359,200 @@ def create_scripts(spec_path):
 
     df_spec = pd.read_excel(spec_path, na_values='', engine='openpyxl')
 
-    wrk_schema, stg_schema, tgt_schema = df_spec['Schema'].unique()
-    wrk_table, stg_table, tgt_table = df_spec['Target Table'].unique()
+    spec_length = len(df_spec['Schema'].unique())
+
+    if spec_length == 3:
+        wrk_schema, stg_schema, tgt_schema = df_spec['Schema'].unique()
+    elif spec_length == 2:
+        wrk_schema, stg_schema = df_spec['Schema'].unique()
+        tgt_schema = None
+    elif spec_length == 1:
+        wrk_schema = df_spec['Schema'].unique()
+        stg_schema = None
+        tgt_schema = None
+    
+    if spec_length == 3:
+        wrk_table, stg_table, tgt_table = df_spec['Target Table'].unique()
+    elif spec_length == 2:
+        wrk_table, stg_table = df_spec['Target Table'].unique()
+        tgt_table = None
+    elif spec_length == 1:
+        wrk_table = df_spec['Target Table'].unique()
+        stg_table = None
+        tgt_table = None
 
     # wrk_df = df_spec[(df_spec['Schema'] == wrk_schema) & (~df_spec['Target Field'].isna())].copy()
-    stg_df = df_spec[(df_spec['Schema'] == stg_schema) & (~df_spec['Target Field'].isna())].copy()
-    tgt_df = df_spec[
-        (df_spec['Schema'] == tgt_schema) & 
-        (~df_spec['Target Field'].isna()) &
-        (~df_spec['Target Field'].isin(['load_file_name', 'load_timestamp']))
-    ].copy()
+    if stg_schema:
+        stg_df = df_spec[(df_spec['Schema'] == stg_schema) & (~df_spec['Target Field'].isna())].copy()
+    if tgt_schema:
+        tgt_df = df_spec[
+            (df_spec['Schema'] == tgt_schema)
+            & (~df_spec['Target Field'].isna())
+            #  & (~df_spec['Target Field'].isin(['load_file_name', 'load_timestamp']))
+        ].copy()
 
     base_filename = os.path.splitext(os.path.basename(spec_path))[0]
     subject_area_name = base_filename.replace("mapping_spec_", "")
     target_path = os.path.dirname(spec_path)
     
-    tgt_pk_values = tgt_df.loc[(tgt_df["Target Table"] == tgt_table) & (~tgt_df["PK"].isna()), "Target Field"].tolist()
-    if tgt_pk_values:
-        tgt_pk_string = ', '.join(tgt_pk_values)
-    else:
-        tgt_pk_string = 'field'
+    if tgt_schema:
+        tgt_pk_values = tgt_df.loc[(tgt_df["Target Table"] == tgt_table) & (~tgt_df["PK"].isna()), "Target Field"].tolist()
+        if tgt_pk_values:
+            tgt_pk_string = ', '.join(tgt_pk_values)
+        else:
+            tgt_pk_string = 'field'
     
-    stg_pk_values = tgt_df.loc[(tgt_df["Target Table"] == tgt_table) & (~tgt_df["PK"].isna()), "Source Field(s)"].tolist()
-    if stg_pk_values:
-        stg_pk_string = ', '.join(stg_pk_values)
-    else:
-        stg_pk_string = 'field'
+    if stg_schema:
+        stg_pk_values = tgt_df.loc[(tgt_df["Target Table"] == tgt_table) & (~tgt_df["PK"].isna()), "Source Field(s)"].tolist()
+        if stg_pk_values:
+            stg_pk_string = ', '.join(stg_pk_values)
+        else:
+            stg_pk_string = 'field'
 
     # Write table creation scripts
-    sql_string = f'-- DROP TABLE {stg_schema}.{stg_table};\n\nCREATE TABLE {stg_schema}.{stg_table} (\n'
+    table_creation_path = f'{target_path}/{subject_area_name} - table creation scripts.sql'
+    sql_string = ''
+    if stg_schema:
+        sql_string += f'DROP TABLE IF EXISTS {stg_schema}.{stg_table};\n\nCREATE TABLE {stg_schema}.{stg_table} (\n'
 
-    for index, row in stg_df.iterrows():
-        target_field = row['Target Field']
-        datatype = row['Type']
-        sql_string += f'\t{target_field} {datatype} NULL, \n'
+        for index, row in stg_df.iterrows():
+            target_field = row['Target Field']
+            datatype = row['Type']
+            sql_string += f'\t{target_field} {datatype} NULL, \n'
 
-    sql_string = sql_string[:-3]
+        sql_string = sql_string[:-3]
 
-    sql_string += f'\n);\n'
+        sql_string += f'\n);\n'
 
-    if stg_pk_values:
-        sql_string += f'\nCREATE INDEX idx_{stg_table} ON {stg_schema}.{stg_table} ({stg_pk_string});\n'
-    else:
-        sql_string += f'\nCREATE INDEX idx_{stg_table} ON {stg_schema}.{stg_table} (field);\n'
+        if stg_pk_values:
+            sql_string += f'\nCREATE INDEX idx_{stg_table} ON {stg_schema}.{stg_table} ({stg_pk_string});\n'
+        else:
+            sql_string += f'\nCREATE INDEX idx_{stg_table} ON {stg_schema}.{stg_table} (field);\n'
 
-    sql_string += f'\n-- DROP TABLE {tgt_schema}.{tgt_table};\n\nCREATE TABLE {tgt_schema}.{tgt_table} (\n'
+    if tgt_schema:
+        sql_string += f'\nDROP TABLE IF EXISTS {tgt_schema}.{tgt_table};\n\nCREATE TABLE {tgt_schema}.{tgt_table} (\n'
 
-    for index, row in tgt_df.iterrows():
-        target_field = row['Target Field']
-        datatype = row['Type']
-        sql_string += f'\t{target_field} {datatype} NULL, \n'
+        for index, row in tgt_df.iterrows():
+            target_field = row['Target Field']
+            datatype = row['Type']
+            pk_field = str(row['PK'])
+            if pk_field == 'nan':
+                pk_field = ''
+            sql_string += f'\t{target_field} {datatype}'
+            if len(pk_field) > 0:
+                sql_string += ' NOT NULL, \n'
+            else:
+                sql_string += ' NULL, \n'
 
-    sql_string += f'\tCONSTRAINT {tgt_table}_pkey PRIMARY KEY ({tgt_pk_string})\n);'
+        sql_string += f'\tCONSTRAINT {tgt_table}_pkey PRIMARY KEY ({tgt_pk_string})\n);'
 
-    if wrk_schema_user:
+    if wrk_schema_user and stg_schema:
         sql_string += f'\n\nGRANT UPDATE, SELECT, INSERT, DELETE ON TABLE {stg_schema}.{stg_table} TO {wrk_schema_user};'
+    if wrk_schema_user and tgt_schema:
         sql_string += f'\nGRANT UPDATE, SELECT, INSERT, DELETE ON TABLE {tgt_schema}.{tgt_table} TO {wrk_schema_user};'
 
-    with open(f'{target_path}/{subject_area_name} - table creation scripts.sql', 'w') as f:
-        f.write(sql_string)
+    if sql_string:
+        with open(table_creation_path, 'w') as f:
+            f.write(sql_string)
+    else:
+        if os.path.exists(table_creation_path):
+            os.remove(table_creation_path)
 
     # Write wrk to stg script
-    delete_sql = f'--DELETE FROM {stg_schema}.{stg_table};\n\n'
-    sql_string = 'SELECT \n'
-    insert_string = ''
+    wrk_to_stg_path = f'{target_path}/wrk to stg load - {subject_area_name}.sql'
+    stg_post_load_path = f'{target_path}/stg post-load 01 - {subject_area_name}.sql'
+    if stg_schema:
+        delete_sql = f'DELETE FROM {stg_schema}.{stg_table};\n\n'
+        sql_string = 'SELECT \n'
+        insert_string = ''
 
-    for index, row in stg_df.iterrows():
-        source_field = row['Source Field(s)']
-        target_field = row['Target Field']
-        data_type = row['Type']
-        sql_string += f'CAST(WRK.{source_field} AS {data_type}) AS {target_field}, \n'
-        insert_string += f'{target_field}, '
+        for index, row in stg_df.iterrows():
+            source_field = row['Source Field(s)']
+            target_field = row['Target Field']
+            data_type = row['Type']
+            sql_string += f'CAST(WRK.{source_field} AS {data_type}) AS {target_field}, \n'
+            insert_string += f'{target_field}, '
 
-    sql_string = sql_string.rstrip(', \n')
-    sql_string += f'\nFROM {wrk_schema}.{wrk_table} WRK;'
+        sql_string = sql_string.rstrip(', \n')
+        sql_string += f'\nFROM {wrk_schema}.{wrk_table} WRK;'
 
-    # insert_string = insert_string[:-2]
+        # insert_string = insert_string[:-2]
 
-    with open(f'{target_path}/wrk to stg load - {subject_area_name}.sql', 'w') as f:
-        f.write(delete_sql)
-        f.write(f'INSERT INTO {stg_schema}.{stg_table} ({insert_string[:-2]})\n')
-        f.write(sql_string)
+        with open(wrk_to_stg_path, 'w') as f:
+            f.write(delete_sql)
+            f.write(f'INSERT INTO {stg_schema}.{stg_table} ({insert_string[:-2]})\n')
+            f.write(sql_string)
 
-    # Write stg to tgt script
-    if tgt_pk_values:
-        join_string = f"WHERE STG.{tgt_pk_values[0]} = TGT.{tgt_pk_values[0]}"
-        if len(tgt_pk_values) > 1:
-            for pk_value in tgt_pk_values[1:]:
-                join_string += f"\n\t  AND STG.{pk_value} = TGT.{pk_value}"
+        # Write stg post-load 01 script
+        if tgt_pk_values:
+            sql_string = f'--Remove Duplicates\nWITH numbered_rows AS\n(\n\tSELECT ctid, ROW_NUMBER() OVER (PARTITION BY '
+            for pk_value in tgt_pk_values:
+                sql_string += f'{pk_value}, '
+            sql_string = sql_string.rstrip(", ")
+            sql_string += f' ORDER BY load_timestamp DESC, load_file_name DESC) AS row_num\n\tFROM {stg_schema}.{stg_table}\n)\nDELETE\n--SELECT\nFROM {stg_schema}.{stg_table} STG\nWHERE ctid IN\n(\n\tSELECT ctid\n\tFROM numbered_rows\n\tWHERE row_num > 1\n);'
+
+            with open(stg_post_load_path, 'w') as f:
+                f.write(sql_string)
     else:
-        join_string = f'WHERE STG.field = TGT.field'
+        if os.path.exists(wrk_to_stg_path):
+            with open(wrk_to_stg_path, "w") as file:
+                file.truncate(0)
+        if os.path.exists(stg_post_load_path):
+            os.remove(stg_post_load_path)
+    
+    # Write stg to tgt script
+    stg_to_tgt_path = f'{target_path}/stg to target load - {subject_area_name}.sql'
+    sql_string = ''
+    if stg_schema and tgt_schema:
+        if tgt_pk_values:
+            join_string = f"WHERE STG.{tgt_pk_values[0]} = TGT.{tgt_pk_values[0]}"
+            if len(tgt_pk_values) > 1:
+                for pk_value in tgt_pk_values[1:]:
+                    join_string += f"\n\t  AND STG.{pk_value} = TGT.{pk_value}"
+        else:
+            join_string = f'WHERE STG.field = TGT.field'
 
-    delete_sql = f'/*\nDELETE FROM {tgt_schema}.{tgt_table} TGT\nWHERE EXISTS\n(\n\tSELECT 1\n\tFROM {stg_schema}.{stg_table} STG\n\t{join_string}\n);\n*/\n\n'
-    sql_string = 'SELECT \n'
-    insert_string = ''
+        delete_sql = f'DELETE FROM {tgt_schema}.{tgt_table} TGT\nWHERE EXISTS\n(\n\tSELECT 1\n\tFROM {stg_schema}.{stg_table} STG\n\t{join_string}\n);\n\n'
+        sql_string += 'SELECT \n'
+        insert_string = ''
 
-    for index, row in tgt_df.iterrows():
-        source_field = row['Source Field(s)']
-        target_field = row['Target Field']
-        data_type = row['Type']
-        sql_string += f'CAST(STG.{source_field} AS {data_type}) AS {target_field}, \n'
-        insert_string += f'{target_field}, '
+        for index, row in tgt_df.iterrows():
+            source_field = row['Source Field(s)']
+            target_field = row['Target Field']
+            data_type = row['Type']
+            if target_field == 'modify_date_time' and source_field == 'System Generated':
+                sql_string += f'current_timestamp(0) AS {target_field}, \n'
+            else:
+                sql_string += f'CAST(STG.{source_field} AS {data_type}) AS {target_field}, \n'
+            insert_string += f'{target_field}, '
 
-    sql_string = sql_string.rstrip(', \n')
-    sql_string += f'\nFROM {stg_schema}.{stg_table} STG;'
+        sql_string = sql_string.rstrip(', \n')
+        sql_string += f'\nFROM {stg_schema}.{stg_table} STG'
 
-    truncate_wrk_table = f'\n\n/*\nTRUNCATE {wrk_schema}.{wrk_table};\n\nTRUNCATE {stg_schema}.{stg_table};\n*/'
+        # if tgt_pk_values:
+        #     sql_string += f'WHERE 1 = 1'
+        #     for pk_value in tgt_pk_values:
+        #         sql_string += f'\n  AND 1 = 1'
 
-    with open(f'{target_path}/stg to target load - {subject_area_name}.sql', 'w') as f:
-        f.write(delete_sql)
-        f.write(f'INSERT INTO {tgt_schema}.{tgt_table} ({insert_string[:-2]})\n')
-        f.write(sql_string)
-        f.write(truncate_wrk_table)
+        if tgt_pk_values:
+            where_string = f"\nWHERE STG.{tgt_pk_values[0]} IS NOT NULL"
+            if len(tgt_pk_values) > 1:
+                for pk_value in tgt_pk_values[1:]:
+                    where_string += f"\n  AND STG.{pk_value} IS NOT NULL"
+            sql_string += where_string
+        
+        sql_string += ';'
+
+        truncate_wrk_table = f'\n\n/*\nTRUNCATE {wrk_schema}.{wrk_table};\n\nTRUNCATE {stg_schema}.{stg_table};\n*/'
+
+        with open(stg_to_tgt_path, 'w') as f:
+            f.write(delete_sql)
+            f.write(f'INSERT INTO {tgt_schema}.{tgt_table} ({insert_string[:-2]})\n')
+            f.write(sql_string)
+            f.write(truncate_wrk_table)
+    else:
+        if os.path.exists(stg_to_tgt_path):
+            os.remove(stg_to_tgt_path)
 
     # if not os.path.exists("generated_files"):
     #     os.makedirs("generated_files")
@@ -638,7 +649,8 @@ if __name__ == '__main__':
             source_file_path,
             delimiter=delimiter,
             encoding=file_encoding,
-            na_values=null_value,
+            na_values={null_value, '', '#N/A', 'NaN', 'NULL', 'null', 'Null', '<NULL>', '[NULL]', '(NULL)', '#VALUE!', '#DIV/0!', '#REF!', '#NUM!', '#NAME?'},
+            keep_default_na=False,
             dtype=str,
             quoting=csv.QUOTE_ALL, 
             on_bad_lines='skip'
@@ -656,7 +668,8 @@ if __name__ == '__main__':
                     try:
                         df_source[col] = pd.to_datetime(df_source[col], errors='raise')
                     except ValueError:
-                        pass
+                        # pass
+                        df_source[col] = df_source[col].astype(str)
         
         build_wrk_spec()
 
@@ -708,7 +721,7 @@ if __name__ == '__main__':
 
 from script_updater import call_spec_builder
 
-file_path = r'C:\Data Projects\Development\projects\flat_file_loader\src\spec_builder\generated_files\personal_files'
+file_path = r'C:\Data Projects\Development\projects\flat_file_loader\src\spec_builder\generated_files\tmdb_person_full'
 call_spec_builder(file_path)
 
 print(f'"{file_path}" Rebuilt\n')

@@ -290,7 +290,7 @@ The "load_summary.json" file captures basic job metrics and will look similar to
 
 ## Docker Deployment with S3
 
-A Docker image has been created based on the "tiangolo/uwsgi-nginx" Linux image, with all necessary files and libraries deployed.  It can be found at "jameslarsen42/nexus_flat_file_loader".  Alternatively, a Dockerfile has been included in this package if you wish to build it yourself.
+A Docker image has been created based on the "tiangolo/uwsgi-nginx" Linux image, with all necessary files and libraries deployed.  It can be found at "jameslarsen42/nexus_flat_file_loader" on DockerHub.  Alternatively, a Dockerfile has been included in this package if you wish to build it yourself.
 
 ### **S3 Folder Structure**
 

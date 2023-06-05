@@ -219,7 +219,7 @@ def run_sql_statements(input_support_path, folder):
                                 log_statement += f'\n\t\t{affected_rows_string} rows {statement_action}'
                             print(print_statement)
                             # logger.debug('Running SQL statement: \n"%s"', sql_statement)
-                            logger.debug(log_statement)
+                            logger.info(log_statement)
                             #engine.execute(text(sql_statement), schema=schema)
                             print('            Success')
                         except Exception as e: # pylint: disable=broad-except
@@ -399,12 +399,16 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
                     df.replace('', None, inplace=True)
                     df.columns = [col.replace('"', '') for col in df.columns]
 
-                df.columns = df.columns.str.replace(' ', '_').str.lower()
+                df.columns = df.columns.str.replace(' ', '_').str.replace('-', '_').str.lower()
                 for char in ['(', ')', '[', ']']:
                     df.columns = df.columns.str.replace(char, '', regex= False)
 
                 # df.columns = df.columns.map(lambda col: string_utils.cleanse_string(col, title_to_snake_case=True))
-                
+
+                spec_column_list = df_columns.source_fields.values.tolist()
+                spec_column_list = [column.replace(' ', '_').replace('-', '_').lower() for column in spec_column_list]
+                spec_column_list = [column.replace('(', '').replace(')', '').replace('[', '').replace(']', '') for column in spec_column_list]
+
                 df['load_file_name'] = file_path.name
                 df['load_timestamp'] = job_start_time
                 #df = df.drop(columns=['boxofficerank']) # test for file doesn't match spec
@@ -412,7 +416,7 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
                 # Check if load file matches spec
                 if not file_verified:
                     load_column_list = list(df.columns.values)
-                    spec_column_list = df_columns.source_fields.values.tolist()
+                    # spec_column_list = df_columns.source_fields.values.tolist()
                     if len(list(set(spec_column_list).difference(load_column_list))) == 0:
                         file_verified = True # pylint: disable=invalid-name
                     else:
@@ -424,7 +428,8 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
                 for row in range(len(df_columns)):
                     #print(df_columns.loc[row + 1].at["type"])
                     try:
-                        column_name = df_columns.loc[row + 1].at["source_fields"]
+                        # column_name = df_columns.loc[row + 1].at["source_fields"]
+                        column_name = spec_column_list[row]
                         if df_columns.loc[row + 1].at["type"] == 'float64':
                             df[column_name] = pd.to_numeric(df[column_name])#, errors='coerce')
                         elif df_columns.loc[row + 1].at["type"] in ['date', 'timestamp'] and column_name != 'load_timestamp':
@@ -441,7 +446,7 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
         except Exception as e: # pylint: disable=broad-except
             print(e)
             logger.error('Error encountered:', exc_info=True)
-            job_errors_or_warnings += 1
+            # job_errors_or_warnings += 1
             break_out_flag = True # pylint: disable=invalid-name
             
         if break_out_flag:
@@ -449,6 +454,7 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
                 os.makedirs(bad_files_folder)
             folder_bad_files += 1
             job_bad_files += 1
+            job_errors_or_warnings += 1
             file['fileName'] = load_file
             file['fileStart'] = file_start_time_log
             new_path = pathlib.Path(bad_files_folder / load_file)
@@ -457,15 +463,16 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
             continue
         
         # attempt more accurate way of determine records loaded
-        count_sql_statement = f'select count(*) from {schema}.{wrk_table};'
-        try:
-            with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
-                result = conn.execute(text(count_sql_statement))
-                record_count = result.scalar()
-                if record_count:
-                    file_records_loaded = record_count
-        except Exception as e: # pylint: disable=broad-except
-            pass
+        # DOESN'T WORK WITH MULTIPLE FILES
+        # count_sql_statement = f'select count(*) from {schema}.{wrk_table};'
+        # try:
+        #     with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn:
+        #         result = conn.execute(text(count_sql_statement))
+        #         record_count = result.scalar()
+        #         if record_count:
+        #             file_records_loaded = record_count
+        # except Exception as e: # pylint: disable=broad-except
+        #     pass
         
         folder_files_loaded += 1
         folder_records_loaded += file_records_loaded
@@ -473,19 +480,19 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
         job_records_loaded += file_records_loaded
         file_end_time, file_end_time_string, file_end_time_log = get_current_timestamp()
         days, hours, minutes, seconds, display_string = get_duration(file_start_time, file_end_time)
+        original_row_count_string = str(format(original_row_count, ','))
+        file_records_loaded_string = str(format(file_records_loaded, ','))
         file['fileName'] = load_file
-        file['fileRawRecords'] = str(format(original_row_count, ','))
-        file['fileRecordsLoaded'] = str(format(file_records_loaded, ','))
+        file['fileRawRecords'] = original_row_count_string
+        file['fileRecordsLoaded'] = file_records_loaded_string
         file['fileStart'] = file_start_time_log
         file['fileEnd'] = file_end_time_log
         file['fileTotalDuration'] = display_string
         if file_records_loaded != original_row_count and file_records_loaded > 0:
-            file_records_loaded_string = str(format(file_records_loaded, ','))
-            original_row_count_string = str(format(original_row_count, ','))
             loaded_rows_difference_string = str(format(original_row_count - file_records_loaded, ','))
             file['fileLoadError'] = f'ERROR: {file_records_loaded_string} records loaded of {original_row_count_string} in source file ({loaded_rows_difference_string} records difference)'
             job_errors_or_warnings += 1
-            logger.info('%s records loaded successfully.  WARNING: This is less than the source file contained (%s records).', format(file_records_loaded, ','), format(original_row_count_string, ','))
+            logger.info('%s records loaded successfully.  WARNING: This is less than the source file contained (%s records).', file_records_loaded_string, original_row_count_string)
         else:
             logger.info('%s records loaded successfully', format(file_records_loaded, ','))
         files.append(dict(file))
@@ -556,6 +563,7 @@ def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk
 
         # Check for valid config file
         if not os.path.isfile(file_config_path):
+            print(f'File not found: "{file_config_path}"')
             logger.info('No valid config file at "%s"', file_config_path)
             continue
         extension, delimiter, encoding, null_value, quoting, file_read_chunk_size, archive_expire_days = read_file_config_settings(file_config_path)
@@ -672,8 +680,10 @@ if __name__ == '__main__':
 
         if job_errors_or_warnings > 0:
             print(f'ERRORS OR WARNINGS ENCOUNTERED\nSee the below files for details:\n{log_file}\n{load_summary_file_path}')
-        else:
+        elif job_records_loaded > 0:
             print(f'Job completed successfully\nSee the below files for details:\n{log_file}\n{load_summary_file_path}')
+        else:  
+            print('No files to process')
 
         engine.dispose()
 

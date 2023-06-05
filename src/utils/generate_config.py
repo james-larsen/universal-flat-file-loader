@@ -31,8 +31,8 @@ print("Config file 'connections_config' created")
 # ADD SECTION
 config_file.add_section('app_settings')
 # ADD SETTINGS TO SECTION
-config_file.set('app_settings', 'load_file_path', r'Y:\Python Upload Data Files\Upload')
-config_file.set('app_settings', 'archive_file_path', r'Y:\Python Upload Data Files\Archive')
+config_file.set('app_settings', 'load_file_path', r'')
+config_file.set('app_settings', 'archive_file_path', r'')
 
 # SAVE CONFIG FILE
 with open('app_config.ini', 'w', encoding='UTF8') as configfileObj:
