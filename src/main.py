@@ -1,10 +1,12 @@
 """Parse and load flat files"""
 #%%
+import sys
 import os
 import platform
 import pathlib
+from threading import Lock
 import shutil
-#import sys
+import argparse
 import glob
 import logging
 #import time
@@ -13,36 +15,33 @@ import warnings
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+from flask import Flask, request#, make_response, jsonify
 import traceback
 import re
 import json
+from collections import OrderedDict
+import copy
+import gzip
+import zipfile
+import bz2
+import lzma
 # pylint: disable=import-error
-# from utils.build_engine import build_engine
-# from utils import config_reader as cr
-# from utils import clean_sql
-# from utils import time_difference
-# from utils.current_timestamp import get_current_timestamp
-from nexus_utils.package_utils import add_package_to_path, import_relative
+from nexus_utils.package_utils import add_package_to_path#, import_relative
 package_root_dir, package_root_name = add_package_to_path()
-# from flat_file_loader.src.utils.build_engine import build_engine
 # import_relative('flat_file_loader', 'src.utils.build_engine', 'build_engine', caller_globals=globals())
 # import_relative(package_root_name, 'src.utils.build_engine', 'build_engine')
 from nexus_utils.database_utils import build_engine
-# from flat_file_loader.src.utils import config_reader as cr
 # import_relative(package_root_name, 'src.utils', 'config_reader', alias='cr')
 from nexus_utils import config_utils as cr
-# from flat_file_loader.src.utils import clean_sql
 # import_relative(package_root_name, 'src.utils', 'clean_sql')
 from nexus_utils.database_utils import clean_sql_statement
-# from flat_file_loader.src.utils import time_difference
 # import_relative(package_root_name, 'src.utils', 'time_difference')
 from nexus_utils.datetime_utils import get_current_timestamp, get_duration
-# from flat_file_loader.src.utils.current_timestamp import get_current_timestamp
 # import_relative(package_root_name, 'src.utils.current_timestamp', 'get_current_timestamp')
-from nexus_utils.datetime_utils import get_current_timestamp
+# from nexus_utils.datetime_utils import get_current_timestamp
 from nexus_utils import password_utils as pw
-from nexus_utils import string_utils
-# from flat_file_loader.src.global_variables import setup_globals
+# from nexus_utils import string_utils
+# import api_response
 # pylint: enable=import-error
 
 if platform.system() == 'Windows':
@@ -54,7 +53,189 @@ if platform.system() == 'Windows':
 
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
+flat_file_loader_app = Flask(__name__)
+flat_file_loader_app.config['JSON_SORT_KEYS'] = False
+lock = Lock()
+
+class NoPrint:
+    def write(self, x):
+        pass
+    
+    def flush(self):
+        pass
+
 #%%
+
+def run_flask_app(host=None, port=None, verbose_flag=False, _logging_flag=False):
+    from waitress import serve
+    global logging_flag
+
+    if not host:
+        host = 'localhost'
+
+    host = os.getenv('NEXUS_FFL_API_HOST', host)
+
+    if not port:
+        port = 5001
+
+    port = os.getenv('NEXUS_FFL_API_PORT', port)
+
+    print(f'Listening on {host}:{port}')
+    print('Press Ctrl+C to exit')
+
+    # Disable print functionality
+    if not verbose_flag:
+        sys.stdout = NoPrint()
+    
+    logging_flag = _logging_flag
+    
+    serve(flat_file_loader_app, host=host, port=port)
+    # flat_file_loader_app.run(host=host, port=port)
+
+common_function_aliases = {
+    'run_all': 'run_all',
+    'all': 'run_all',
+    'process_folder': 'process_folder',
+    'pf': 'process_folder'
+}
+
+api_function_aliases = {
+    
+}
+
+@flat_file_loader_app.route('/request', methods=['POST'])
+def trigger_function_from_api():
+    
+    global job_errors_or_warnings
+    
+    # Process one request at a time
+    with lock:
+        try:
+            per_run_initializations()
+            
+            params = request.args.to_dict()
+            # print(request)
+            # print(params)
+        
+            # payload = request.json
+
+            function_aliases = common_function_aliases.copy()
+            function_aliases.update(api_function_aliases)
+
+            # function = payload['function_name']
+            # kwargs = payload.get('kwargs', {})
+            function = params.get('function', None)
+
+            function_lookup = function_aliases.get(function, function)
+
+            if function is None:
+                function = 'run_all'
+            elif function and not function_lookup:
+                valid_function_values = set(function_aliases.values())
+                valid_functions_string = ''.join([f'\n--{value}' for value in valid_function_values])
+                print(f'Invalid function specified.  Valid values are:{valid_functions_string}')
+                return  {'error': f'Unknown function: "{function}"'}, 400
+            elif function and function_lookup:
+                function = function_lookup
+            
+            folder_to_process = params.get('folder_to_process', None)
+            # env_values = params.get('env_values', None)
+            # if env_values:
+            #     cr.process_env_file(env_values)
+
+            call_function(function, folder_to_process=folder_to_process)
+            
+            my_api_response.build_api_response(flat_file_loader_app.app_context(), function, job_errors_or_warnings)
+
+            return my_api_response.api_response
+        
+        except Exception as e:
+            print(f'Error: {str(e)}')
+            if my_api_response.api_error_flag == None:
+                my_api_response.api_error_flag = True
+            if not my_api_response.api_message:
+                my_api_response.api_message = str(e)
+            my_api_response.build_api_response(flat_file_loader_app.app_context(), function, job_errors_or_warnings)
+            return my_api_response.api_response
+
+cli_function_aliases = {
+    'api_listener': 'api_listener'
+}
+
+def parse_command_run_arguments():
+    """Interprets the arguments passed into the command line to run the correct function"""
+    # global folder_to_process
+
+    parser = argparse.ArgumentParser(description='Process flat files')
+
+    function_aliases = cli_function_aliases.copy()
+    function_aliases.update(common_function_aliases)
+
+    parser.add_argument('function', nargs='?', default='run_all', choices=function_aliases.keys(), help='Function to call')
+    parser.add_argument('-host', '--api_host', type=str, help='Hostname for Flask API listener')
+    parser.add_argument('-p', '--port', type=str, help='Port for Flask API listener')
+    parser.add_argument('-v', '--verbose_flag', action='store_true', help='Whether to allow stdout while in API listener mode')
+    parser.add_argument('-l', '--logging_flag', action='store_true', help='Whether to enable local logs while in API listener mode')
+    parser.add_argument('-f', '--folder_to_process', type=str, help='Folder to process')
+    parser.add_argument('-env', '--env_file', type=str, help='Path to environment variables file')
+
+    if not DEBUGGING_MODE:
+        args = parser.parse_args()
+    else:
+        # provide test values when developing / debugging
+        args = argparse.Namespace(
+            function='run_all'
+        )
+        # args = argparse.Namespace(
+        #     function='process_folder',
+        #     folder_to_process='no_folder'
+        # )
+
+    # # function = args.function
+    function = function_aliases.get(args.function, args.function)
+    host = getattr(args, 'api_host', None)
+    port = getattr(args, 'port', None)
+    verbose_flag = getattr(args, 'verbose_flag', False)
+    logging_flag = getattr(args, 'logging_flag', False)
+    folder_to_process = getattr(args, 'folder_to_process', None)
+    env_values = getattr(args, 'env_values', None)
+    if env_values:
+        cr.process_env_file(env_values)
+
+    if function:
+        call_function(
+                function,
+                host,
+                port,
+                verbose_flag,
+                logging_flag,
+                folder_to_process=folder_to_process)
+    else:
+        valid_function_values = set(function_aliases.values())
+        valid_functions_string = ''.join([f'\n--{value}' for value in valid_function_values])
+        print(f'Invalid function specified.  Valid values are:{valid_functions_string}')
+        return
+
+def call_function(
+        function,
+        host=None,
+        port=None,
+        verbose_flag=None,
+        logging_flag=None,
+        folder_to_process=None):
+
+    if function == 'api_listener':
+        run_flask_app(host=host, port=port, verbose_flag=verbose_flag, _logging_flag=logging_flag)
+    elif function == 'run_all':
+        main_run()
+    elif function == 'process_folder':
+        main_run(folder_to_process)
+
+def convert_to_date(value):
+    try:
+        return pd.to_datetime(value)
+    except pd.errors.OutOfBoundsDatetime:
+        return pd.NaT
 
 def read_app_config_settings(input_app_config_path):
     """Read app configuration parameters"""
@@ -278,7 +459,7 @@ def delete_expired_files(target_folder, archive_expire_days):
 
 def log_metrics():
     """Log performance metrics for loads"""
-    global job_name, job, folders, load_summary_file_path
+    global job, job_name, folders, load_summary_file_path, job_records_loaded, logging_flag, my_api_response
     job_end_time, job_end_time_string, job_end_time_log = get_current_timestamp()
     days, hours, minutes, seconds, display_string = get_duration(job_start_time, job_end_time)
     job['jobName'] = job_name
@@ -293,20 +474,50 @@ def log_metrics():
         job['jobBadFiles'] = str(format(job_bad_files, ','))
     job['folders'] = folders
 
-    with open(load_summary_file_path, 'w') as f:
-        json.dump(job, f, indent=4, default=str)
+    if job_records_loaded > 0 and logging_flag:
+        with open(load_summary_file_path, 'w') as f:
+            json.dump(job, f, indent=4, default=str)
 
-    with open(load_summary_file_path, 'r') as f:
-        data = f.read()
-        #data = data.replace("\\\\", "\\")
-        data = data.replace("\\\\", "/")
-    with open(load_summary_file_path, 'w') as f:
-        f.write(data)
+        with open(load_summary_file_path, 'r') as f:
+            data = f.read()
+            #data = data.replace("\\\\", "\\")
+            data = data.replace("\\\\", "/")
+        with open(load_summary_file_path, 'w') as f:
+            f.write(data)
 
     logger.info('Job start:%s, job end: %s, total duration: %s', job_start_time_log, job_end_time_log, display_string)
 
+    my_api_response.api_result = copy.deepcopy(job)
+
+def get_raw_row_count(file_path, encoding='utf-8'):
+    file_path = str(file_path)
+    if file_path.endswith('.gz'):
+        with gzip.open(file_path, 'rt', encoding=encoding) as csvfile:
+            original_row_count = sum(1 for line in csvfile)
+    elif file_path.endswith('.zip'):
+        with zipfile.ZipFile(file_path) as zip_file:
+            first_file = zip_file.namelist()[0]
+            with zip_file.open(first_file, 'r') as csvfile:
+                original_row_count = sum(1 for line in csvfile)
+    elif file_path.endswith('.bz2'):
+        with bz2.open(file_path, 'rt', encoding=encoding) as csvfile:
+            original_row_count = sum(1 for line in csvfile)
+    elif file_path.endswith('.xz'):
+        with lzma.open(file_path, 'rt', encoding=encoding) as csvfile:
+            original_row_count = sum(1 for line in csvfile)
+    else:
+        with open(file_path, 'r', encoding=encoding) as csvfile:
+            original_row_count = sum(1 for line in csvfile)
+
+    if original_row_count > 0:
+        original_row_count -= 1
+
+    return original_row_count
+
 def load_file(path, files_to_process, extension, delimiter, encoding, null_value, quoting, file_read_chunk_size, archive_expire_days):
     """Load files to be processed"""
+
+    global engine, schema
 
     # Read file spec
     load_folder = os.path.basename(os.path.normpath(path))
@@ -367,11 +578,12 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
             global job_records_loaded
 
             # get raw row count
-            with open(file_path, "rb"):
-                with open(file_path, "r", encoding=encoding) as csvfile:
-                    original_row_count = sum(1 for line in csvfile)
-                    if original_row_count > 0:
-                        original_row_count -= 1
+            # with open(file_path, "rb"):
+            #     with open(file_path, "r", encoding=encoding) as csvfile:
+            #         original_row_count = sum(1 for line in csvfile)
+            #         if original_row_count > 0:
+            #             original_row_count -= 1
+            original_row_count = get_raw_row_count(file_path, encoding)
             
             for n, chunk in (enumerate(
                 pd.read_csv(file_path,
@@ -433,7 +645,12 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
                         if df_columns.loc[row + 1].at["type"] == 'float64':
                             df[column_name] = pd.to_numeric(df[column_name])#, errors='coerce')
                         elif df_columns.loc[row + 1].at["type"] in ['date', 'timestamp'] and column_name != 'load_timestamp':
-                            df[column_name] = pd.to_datetime(df[column_name])
+                            # try:
+                            #     df[column_name] = pd.to_datetime(df[column_name])
+                            # except pd.errors.OutOfBoundsDatetime as e:
+                            #     # df[column_name] = pd.to_datetime('1900-01-01')
+                            #     df[column_name] = pd.NaT
+                            df[column_name] = df[column_name].apply(convert_to_date)
                     except Exception as e: # pylint: disable=broad-except
                         print(e)
                         logger.error('Error attempting to convert field "%s" to type "%s":', column_name, df_columns.loc[row + 1].at["type"], exc_info=True)
@@ -543,20 +760,22 @@ def load_file(path, files_to_process, extension, delimiter, encoding, null_value
 
     return True
 
-def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger):
+def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger, folder_to_process=None):
     global support_path
     if logger is None:
-        # logger = globals()['logger']
         logger = logging.getLogger()
         logger.disabled = True
     # Build list of folders to process by checking for at least one file or the specified type
-    for path in glob.glob(f'{load_file_path}/*/'):
+    path_list = glob.glob(f'{load_file_path}/*/')
+    if folder_to_process:
+        path_list = [path for path in path_list if os.path.basename(path.rstrip(os.sep)) == folder_to_process]
+    for path in path_list:
         # Skip "[Ignore]" folder
         if os.path.basename(os.path.normpath(path)) == '[Ignore]':
             continue
         #path = r'test_path.txt'
         #print(path)
-        folder_start_time = datetime.datetime.now()
+        # folder_start_time = datetime.datetime.now()
         logger.info('Processing folder: "%s"', path)
         support_path = pathlib.Path(path + 'support')
         file_config_path = pathlib.Path(os.path.join(support_path, 'file_config.ini'))
@@ -586,9 +805,7 @@ def process_folders(load_file_path, archive_file_path, log_file_path, read_chunk
         if not load_file(path, files_to_process, extension, delimiter, encoding, null_value, quoting, file_read_chunk_size, archive_expire_days):
             continue
 
-    if job_records_loaded > 0:
-        if logging_flag:
-            log_metrics()
+    log_metrics()
 
 def archive_file(file_path, load_folder, load_file):
     """Archive loaded file"""
@@ -604,18 +821,169 @@ def archive_file(file_path, load_folder, load_file):
     pathlib.Path(file_path).touch()
     shutil.move(file_path, new_path)
 
+def main_run(folder_to_process=None):
+    
+    global DEBUGGING_MODE, project_dir, my_api_response, fatal_error, engine, schema, load_file_path, archive_file_path, log_file, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, current_script_path, load_summary_file_path, job_start_time_string, job_errors_or_warnings, job_records_loaded, log_file, log_file_name, local_log_file_path, final_log_file_path, logger, job
+    
+    try:
+        # Logger settings
+        # if logging_flag:
+        #     if not os.path.exists(log_file_path):
+        #         os.makedirs(log_file_path)
+        #     log_file = pathlib.Path(log_file_path) / f'{job_start_time_string}_flat_file_loader.log'
+        #     # logging.getLogger().handlers.clear()
+        #     logging.basicConfig(filename=log_file, 
+        #         filemode='w', 
+        #         level=logging.INFO, 
+        #         format='%(asctime)s - %(name)s - %(levelname)s - \n\t%(message)s\n')
+        #     logger = logging.getLogger(__name__)
+        #     # Update the log file location for subsequent runs
+        #     handler = logger.handlers[0]
+        #     handler.baseFilename = str(log_file)
+        #     handler.close()
+        #     handler.stream = None
+        # print(f'Logging flag: {logging_flag}')
+        if logging_flag:
+            # if not os.path.exists(log_file_path):
+            #     os.makedirs(log_file_path)
+            log_file_name = f'{job_start_time_string}_flat_file_loader.log'
+            local_log_file_path = pathlib.Path(project_dir) / 'logging_local' / log_file_name
+            final_log_file_path = pathlib.Path(log_file_path) / log_file_name
+            # log_file = pathlib.Path(log_file_path) / log_file_name
+            log_file = local_log_file_path
+            # print(f'Log File: {str(log_file)}')
+            
+            logger = logging.getLogger(__name__)
+            logger.setLevel(logging.INFO)
+            logger.propagate = False
+
+            # Create new file handler
+            new_file_handler = logging.FileHandler(log_file)
+            new_file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - \n\t%(message)s\n'))
+            
+            # If logger has already handlers, remove them before adding new one
+            if logger.hasHandlers():
+                logger.handlers.clear()
+            
+            logger.addHandler(new_file_handler)
+            # print(f'Logger location: {next((handler for handler in logger.handlers if isinstance(handler, logging.FileHandler)), None).baseFilename}')
+        else:
+            logger = logging.getLogger()
+            logger.disabled = True
+        current_script_path = pathlib.Path(os.getcwd() + os.sep + os.path.basename(__file__)).resolve()
+        logger.info('Start script: %s', current_script_path)
+        logger.info('Build engine using config entry: %s', db_target_config)
+
+        # (job_start_time, job_start_time_string, job_start_time_log, os_platform, support_path, logger, job_name, job, folders, folder, job_folders_processed, job_files_loaded, job_bad_files, job_records_loaded, db_target_config, engine, schema) = setup_globals().values()
+        # app_config_path = pathlib.Path(os.getcwd() + '/config/app_config.ini')
+        connect_type, server_address, server_port, database_name, schema, user_name, secret_key = read_connection_config_settings(connection_config_path, db_target_config)
+        if 'NEXUS_FFL_TARGET_DB_PASSWORD' in os.environ:
+            db_password = os.environ['NEXUS_FFL_TARGET_DB_PASSWORD']
+        else:
+            db_password = pw.get_password(password_method, secret_key, account_name=user_name, access_key=password_access_key, secret_key=password_secret_key, endpoint_url=password_endpoint_url, region_name=password_region_name, password_path=password_password_path)
+        
+        # engine, schema = build_engine(pathlib.Path(connection_config_path), db_target_config, password_method)  # type: ignore
+
+        engine = build_engine(connect_type, server_address, server_port, database_name, user_name, db_password)#, schema)
+        connection_result = connection_test(engine, schema)
+        if connection_result != 'Success':
+            fatal_error = True
+            logger.error(f'Error accessing database: \n{connection_result}')
+            print(f'Fatal Error: \n{connection_result}')
+            my_api_response.api_error_flag = True
+            my_api_response.api_message = f'Connection Error: {connection_result}'
+        
+        if not fatal_error:
+            process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger, folder_to_process)
+
+            if job_errors_or_warnings > 0:
+                print(f'ERRORS OR WARNINGS ENCOUNTERED\nSee the below files for details:\n{str(final_log_file_path)}\n{str(load_summary_file_path)}')
+                my_api_response.api_message = f'ERRORS OR WARNINGS ENCOUNTERED\nSee the following files for details:\n{str(final_log_file_path)}\n{str(load_summary_file_path)}'
+                my_api_response.log_file_path = str(final_log_file_path)
+            elif job_records_loaded > 0:
+                print_string = 'Job completed successfully'
+                if logging_flag:
+                    print_string += f'\nSee the below files for details:\n{str(final_log_file_path)}\n{str(load_summary_file_path)}'
+                    my_api_response.log_file_path = str(final_log_file_path)
+                print(print_string)
+                my_api_response.api_message = 'Job completed successfully'
+            else:  
+                print('No files to process')
+                my_api_response.api_message = 'No files to process'
+
+    except Exception as e:
+            pass
+    finally:
+        engine.dispose()
+
+        for handler in logger.handlers:
+            handler.close()
+        
+        move_log_file()
+
+def per_run_initializations():
+    import api_response
+    global my_api_response, job_start_time, job_start_time_string, job_start_time_log, fatal_error, job, folders, folder, job_folders_processed, job_files_loaded, job_bad_files, job_records_loaded, job_errors_or_warnings, log_file_path, log_file, load_summary_file_path
+
+    job_start_time, job_start_time_string, job_start_time_log = get_current_timestamp()
+    log_file = pathlib.Path(log_file_path) / f'{job_start_time_string}_flat_file_loader.log'
+    load_summary_file_path = str(pathlib.Path(log_file_path) / f'{job_start_time_string}_flat_file_loader_load_summary.json')
+
+    fatal_error = False
+
+    job = OrderedDict()
+    folders = []
+    folder = {}
+    job_folders_processed = 0
+    job_files_loaded = 0
+    job_bad_files = 0
+    job_records_loaded = 0
+    job_errors_or_warnings = 0
+
+    my_api_response = api_response.ApiResponse()
+
+def move_log_file():
+    global project_dir, logging_flag, log_file_path, log_file_name, local_log_file_path, final_log_file_path
+    
+    # local_log_file_path = pathlib.Path(project_dir) / log_file_name
+    
+    if os.path.isfile(local_log_file_path):
+        if not os.path.exists(log_file_path):
+            os.makedirs(log_file_path)
+        shutil.move(local_log_file_path, pathlib.Path(log_file_path) / log_file_name)
+
 
 #%%
+
+# run_from_command_line = os.getenv("PYTHON_ISATTY", "True").lower() == "true" and sys.stdin.isatty()
+# if 'KUBERNETES_SERVICE_HOST' in os.environ:
+#     run_from_command_line = True
+
+DEBUGGING_MODE = False
+if 'VSCODE_PID' in os.environ or sys.gettrace() is not None:
+    DEBUGGING_MODE = True
+if 'KUBERNETES_SERVICE_HOST' in os.environ:
+    DEBUGGING_MODE = False
+# if DEBUGGING_MODE:
+#     print(f'DEBUGGING_MODE: {DEBUGGING_MODE}')
 
 job_start_time, job_start_time_string, job_start_time_log = get_current_timestamp()
 os_platform = platform.system()
 # support_path = ''
 logger = logging.getLogger()
+log_file = ''
+log_file_name = ''
+local_log_file_path = ''
+final_log_file_path = ''
+# flat_file_loader_app.logger.handlers = logger.handlers
+# flat_file_loader_app.logger.setLevel(logger.level)
+# flat_file_loader_app.logger.propagate = logger.propagate
 fatal_error = False
 
 # Job performance json
 job_name = 'flat_file_loader'
-job = {}
+# job = {}
+job = OrderedDict()
 folders = []
 folder = {}
 job_folders_processed = 0
@@ -640,51 +1008,30 @@ load_summary_file_path = str(pathlib.Path(log_file_path) / f'{job_start_time_str
 connection_config_path = config_path / "connections_config.ini"
 db_target_config = 'target_connection' # Allow user to provide via parameter - future enhancement
 
+# folder_to_process = ''
+engine = None
+schema = None
+current_script_path = ''
+my_api_response = None
+per_run_initializations()
+
 #%%
 if __name__ == '__main__':
-    # globals().update(setup_globals())
-
-    # Logger settings
-    if not os.path.exists(log_file_path):
-        os.makedirs(log_file_path)
-    log_file = pathlib.Path(log_file_path) / f'{job_start_time_string}_flat_file_loader.log'
-    current_script_path = pathlib.Path(os.getcwd() + os.sep + os.path.basename(__file__)).resolve()
-    if logging_flag:
-        logging.basicConfig(filename=log_file, 
-            filemode='w', 
-            level=logging.INFO, 
-            format='%(asctime)s - %(name)s - %(levelname)s - \n\t%(message)s\n')
-        logger = logging.getLogger(__name__)
+    if not DEBUGGING_MODE:
+        # per_run_initializations()
+        parse_command_run_arguments()
+        # print()
     else:
-        logger = logging.getLogger()
-        logger.disabled = True
-    logger.info('Start script: %s', current_script_path)
-    logger.info('Build engine using config entry: %s', db_target_config)
+        # move_log_file()
+        # per_run_initializations()
 
-    # (job_start_time, job_start_time_string, job_start_time_log, os_platform, support_path, logger, job_name, job, folders, folder, job_folders_processed, job_files_loaded, job_bad_files, job_records_loaded, db_target_config, engine, schema) = setup_globals().values()
-    # app_config_path = pathlib.Path(os.getcwd() + '/config/app_config.ini')
-    connect_type, server_address, server_port, database_name, schema, user_name, secret_key = read_connection_config_settings(connection_config_path, db_target_config)
-    db_password = pw.get_password(password_method, secret_key, account_name=user_name, access_key=password_access_key, secret_key=password_secret_key, endpoint_url=password_endpoint_url, region_name=password_region_name, password_path=password_password_path)
+        # parse_command_run_arguments()
+        
+        call_function('run_all')
+
+        # with flat_file_loader_app.test_request_context('/request', method='POST', query_string={'function': 'run_all'}):
+        #     trigger_function_from_api()
+
+        # print('Job complete')
     
-    # engine, schema = build_engine(pathlib.Path(connection_config_path), db_target_config, password_method)  # type: ignore
-
-    engine = build_engine(connect_type, server_address, server_port, database_name, user_name, db_password)#, schema)
-    connection_result = connection_test(engine, schema)
-    if connection_result != 'Success':
-        fatal_error = True
-        logger.error(f'Error accessing database: \n{connection_result}')
-        print(f'Fatal Error: \n{connection_result}')
-    
-    if not fatal_error:
-        process_folders(load_file_path, archive_file_path, log_file_path, read_chunk_size, archive_flag, logging_flag, log_archive_expire_days, logger)
-
-        if job_errors_or_warnings > 0:
-            print(f'ERRORS OR WARNINGS ENCOUNTERED\nSee the below files for details:\n{log_file}\n{load_summary_file_path}')
-        elif job_records_loaded > 0:
-            print(f'Job completed successfully\nSee the below files for details:\n{log_file}\n{load_summary_file_path}')
-        else:  
-            print('No files to process')
-
-        engine.dispose()
-
-# %%
+    # %%

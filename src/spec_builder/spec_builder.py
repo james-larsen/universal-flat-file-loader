@@ -9,6 +9,7 @@ import pandas as pd
 from openpyxl import Workbook
 from datetime import datetime, time
 import csv
+import gzip
 import json
 from nexus_utils.package_utils import add_package_to_path#, import_relative
 package_root_dir, package_root_name = add_package_to_path()
@@ -27,6 +28,39 @@ from nexus_utils import string_utils
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
 
 #%%
+
+def read_source_file(source_file_path, null_value=None):
+    
+    file_encoding = flatfile_utils.detect_encoding(source_file_path)  # type: ignore
+
+    # Read flat file into data frame
+    if source_file_path.endswith('.gz'):
+        with gzip.open(source_file_path, 'rt', encoding=file_encoding) as file:
+            first_row = file.readline().strip()
+    else:
+        with open(source_file_path, 'r', encoding=file_encoding) as file:
+            first_row = file.readline().strip()
+        
+    if "\t" in first_row:
+        delimiter = "\t"
+    elif "|" in first_row:
+        delimiter = "|"
+    else:
+        delimiter = ","
+
+    df_source = pd.read_csv(
+        source_file_path,
+        delimiter=delimiter,
+        encoding=file_encoding,
+        na_values={null_value, '', '#N/A', 'NaN', 'NULL', 'null', 'Null', '<NULL>', '[NULL]', '(NULL)', '#VALUE!', '#DIV/0!', '#REF!', '#NUM!', '#NAME?'},
+        keep_default_na=False,
+        dtype=str,
+        quoting=csv.QUOTE_ALL, 
+        compression='infer',
+        on_bad_lines='skip'
+    )
+
+    return df_source, file_encoding, delimiter
 
 def get_wrk_schema_user(path):
     """Retrieve wrk schema user"""
@@ -99,7 +133,10 @@ def get_db_datatype(target_column_name):
             return 'unknown'
         else:
             if (non_null_values % 1 == 0).all():
-                return 'integer'
+                if non_null_values.max() > 2147483647:
+                    return 'bigint'
+                else:
+                    return 'integer'
             else:
                 # Remove integer values
                 # non_null_values = non_null_values[non_null_values % 1 != 0]
@@ -131,10 +168,6 @@ def get_db_datatype(target_column_name):
                 n = 1
 
             return f'varchar({n})'
-
-# def cleanse_string(string):
-#     string = string.lower().replace(' (', '_').replace(' ', '_').replace('(', '_').replace(')', '')
-#     return string
 
 def format_field(string):
     ending_keywords = ['id', 'cd', 'code', 'num', 'flag', 'desc', 'name', 'amt', 'qty', 'price']
@@ -176,6 +209,7 @@ def build_wrk_spec():
     for header in headers_list:
         dtype = df_source[header].dtype
         first_valid_index = df_source[header].first_valid_index()
+        distinct_values = []
         if first_valid_index is not None:
             first_value = df_source.loc[first_valid_index, header]
             distinct_values = df_source[header].unique()
@@ -269,6 +303,7 @@ def build_stg_spec():
     detail_record.update({
         'Target Field': 'load_file_name',
         'Type': 'varchar(255)',
+        'Comment': '',
         'Source Table': wrk_table,
         'Source Field(s)': 'load_file_name'
     })
@@ -277,6 +312,7 @@ def build_stg_spec():
     detail_record.update({
         'Target Field': 'load_timestamp',
         'Type': 'timestamp(0)',
+        'Comment': '',
         'Source Table': wrk_table,
         'Source Field(s)': 'load_timestamp'
     })
@@ -409,6 +445,12 @@ def create_scripts(spec_path):
         else:
             stg_pk_string = 'field'
 
+    # wrk_pk_values = wrk_df.loc[(wrk_df["Target Table"] == wrk_table) & (~wrk_df["PK"].isna()), "Source Field(s)"].tolist()
+    # if wrk_pk_values:
+    #     wrk_pk_values = ', '.join(wrk_pk_values)
+    # else:
+    #     wrk_pk_values = 'field'
+    
     # Write table creation scripts
     table_creation_path = f'{target_path}/{subject_area_name} - table creation scripts.sql'
     sql_string = ''
@@ -620,11 +662,9 @@ if __name__ == '__main__':
         if tgt_table == '' or source_file_path_type == 'folder':
             tgt_table = subject_area_name
 
-        if not source_file_path.lower().endswith(('.csv', '.txt', '.tsv', '.dat', '.tab')):
-            print("Source file must be one of the following: csv, txt, tsv, dat, tab")
+        if not source_file_path.lower().endswith(('.csv', '.txt', '.tsv', '.dat', '.tab', '.gz')):
+            print("Source file must be one of the following: csv, txt, tsv, dat, tab, gz")
             sys.exit(1)
-
-        file_encoding = flatfile_utils.detect_encoding(source_file_path)  # type: ignore
 
         # Create spec data frame
         columns = [
@@ -635,27 +675,35 @@ if __name__ == '__main__':
         df_spec = pd.DataFrame(columns=columns)
 
         # Read flat file into data frame
-        with open(source_file_path, "r", encoding=file_encoding) as file:
-            first_row = file.readline().strip()
-            
-        if "\t" in first_row:
-            delimiter = "\t"
-        elif "|" in first_row:
-            delimiter = "|"
-        else:
-            delimiter = ","
+        # file_encoding = flatfile_utils.detect_encoding(source_file_path)  # type: ignore
 
-        df_source = pd.read_csv(
-            source_file_path,
-            delimiter=delimiter,
-            encoding=file_encoding,
-            na_values={null_value, '', '#N/A', 'NaN', 'NULL', 'null', 'Null', '<NULL>', '[NULL]', '(NULL)', '#VALUE!', '#DIV/0!', '#REF!', '#NUM!', '#NAME?'},
-            keep_default_na=False,
-            dtype=str,
-            quoting=csv.QUOTE_ALL, 
-            on_bad_lines='skip'
-            #compression='infer'
-        )
+        # if source_file_path.endswith('.gz'):
+        #     with gzip.open(source_file_path, 'rt', encoding=file_encoding) as file:
+        #         first_row = file.readline().strip()
+        # else:
+        #     with open(source_file_path, 'r', encoding=file_encoding) as file:
+        #         first_row = file.readline().strip()
+            
+        # if "\t" in first_row:
+        #     delimiter = "\t"
+        # elif "|" in first_row:
+        #     delimiter = "|"
+        # else:
+        #     delimiter = ","
+
+        # df_source = pd.read_csv(
+        #     source_file_path,
+        #     delimiter=delimiter,
+        #     encoding=file_encoding,
+        #     na_values={null_value, '', '#N/A', 'NaN', 'NULL', 'null', 'Null', '<NULL>', '[NULL]', '(NULL)', '#VALUE!', '#DIV/0!', '#REF!', '#NUM!', '#NAME?'},
+        #     keep_default_na=False,
+        #     dtype=str,
+        #     quoting=csv.QUOTE_ALL, 
+        #     compression='infer',
+        #     on_bad_lines='skip'
+        # )
+
+        df_source, file_encoding, delimiter = read_source_file(source_file_path, null_value)
 
         headers_list = df_source.columns.tolist()
 
@@ -721,10 +769,10 @@ if __name__ == '__main__':
 
 from script_updater import call_spec_builder
 
-file_path = r'C:\Data Projects\Development\projects\flat_file_loader\src\spec_builder\generated_files\tmdb_person_full'
+file_path = r'C:\Data Projects\Development\projects\flat_file_loader\src\spec_builder\generated_files\imdb_title_aka'
 call_spec_builder(file_path)
 
-print(f'"{file_path}" Rebuilt\n')
+print(f'"{file_path}" Rebuilt')
 
 #%%
 """

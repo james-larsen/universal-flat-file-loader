@@ -38,7 +38,7 @@ launch.json
 ~$*.xls*
 
 # Temporary exclusions
-docker/**
+# docker/**
 tests/*
 **/global_variables.py
 # Dockerfile

@@ -1,30 +1,54 @@
-# Universal Flat File Loader
+# Universal Flat File Loader<!-- omit in toc -->
 
 Welcome to my first Python project.  My primary reason for building this application was to help me learn Python while also addressing a common use-case I have encountered in my career as a Data Engineer and Business Analyst: loading simple and well-formed flat files into a database without needing to build a formal ETL job.
 
 The purpose of this application is to allow users to load any predictable flat file structure into a database using config files and specs.  It incorporates features such as logging, archiving, file expiration and execution of custom post-load SQL scripts.  The current version is focused on loading to an on-premises PostgreSQL database, but will be enhanced to target other platforms in the future.
 
+## Table of Contents <!-- omit in toc -->
+- [Requirements](#requirements)
+- [Installation](#installation)
+  - [Via poetry (Installation instructions here):](#via-poetry-installation-instructions-here)
+  - [Via pip:](#via-pip)
+- [Usage](#usage)
+- [Passwords](#passwords)
+- [App Configuration](#app-configuration)
+- [Load File Configuration](#load-file-configuration)
+  - [SQL Scripts](#sql-scripts)
+- [Logging](#logging)
+- [API Listener Mode](#api-listener-mode)
+- [Docker Deployment with S3](#docker-deployment-with-s3)
+  - [S3 Folder Structure](#s3-folder-structure)
+  - [Deploying the Container](#deploying-the-container)
+- [File Analyzer](#file-analyzer)
+- [About the Author](#about-the-author)
+
+---
+
 ## Requirements
 
-python = "^3.8"
+python >=3.8
 
-pandas = "^1.5.3"
+pandas >=1.5.3, <2.0.0
 
-sqlalchemy = "^2.0.4"
+sqlalchemy >=2.0.4, <3.0.0
 
-psycopg2-binary = "2.9.5"
+flask >= 2.2.5, <3.0.0
 
-configparser = "^5.3.0"
+waitress >= 2.1.2, <3.0.0
 
-openpyxl = "^3.1.0"
+psycopg2-binary >=2.9.5, <3.0.0
 
-boto3 = "^1.26.123"
+configparser >=5.3.0, <6.0.0
 
-keyring = "^23.13.1" # Optional
+openpyxl >=3.1.0, <4.0.0
 
-nexus-utilities = "^0.2.8" # My custom utilities package
+boto3 >=1.26.123, <2.0.0
 
-pywin32 = "^305" # Required for Windows machines
+keyring >=23.13.1, <24.0.0
+
+nexus-utilities >=0.6.0, <1.0.0 # My custom utilities package
+
+pywin32 >=305 # Required for Windows machines
 
 ## Installation
 
@@ -36,15 +60,17 @@ poetry install
 
 ### Via pip:
 ```python
-pip3 install pandas
-pip3 install sqlalchemy
-pip3 install psycopg2-binary
-pip3 install configparser
-pip3 install openpyxl
-pip3 install boto3
-pip3 install keyring # Optional
-pip3 install nexus-utilities # My custom utilities package
-pip3 install pywin32 # Required for Windows machines
+pip3 install pandas >=1.5.3,<2.0.0
+pip3 install sqlalchemy >=2.0.4,<3.0.0
+pip3 install flask >=2.2.5,<3.0.0
+pip3 install waitress >=2.1.2,3.0.0
+pip3 install psycopg2-binary >=2.9.5,<3.0.0
+pip3 install configparser >=5.3.0,<6.0.0
+pip3 install openpyxl >=3.1.0, <4.0.0
+pip3 install boto3 >=1.26.123, <2.0.0
+pip3 install keyring >=23.13.1,<24.0.0
+pip3 install nexus-utilities >=0.6.0,<1.0.0 # My custom utilities package
+pip3 install pywin32 >= 305 # Required for Windows machines
 ```
 
 ***As the application uses package-level relative imports, you should add the parent folder containing the "flat_file_loader" folder to your PATH variable.***
@@ -75,6 +101,9 @@ If you do decide to use the keyring library, you will need to add an entry using
 ```python
 keyring.set_password("user_name", "secret_key", "myPassword")
 ```
+
+Alternatively, if the below OS Environment variable is available, it will be used instead:
+ - NEXUS_FFL_TARGET_DB_PASSWORD
 
 ## App Configuration
 
@@ -288,33 +317,60 @@ The "load_summary.json" file captures basic job metrics and will look similar to
 }
 ```
 
+## API Listener Mode
+
+By default, the application will launch into API listener mode on localhost, port 5001.  This can be adjusted using one of the methods below:
+
+Via command line:
+```python
+python main.py --api_listener -host "0.0.0.0" -p "5001"
+```
+
+Via environment variables:
+* NEXUS_FFL_API_HOST
+* NEXUS_FFL_API_PORT
+
+Once started, in can be accessed via the POST endpoint at '**http://{TARGET_HOST}:{PORT}/request**'.  You should pass a dictionary of arguments.  The only required one is **{"function":"<function_name>"}**.  The two supported functions are "run_all" to process all sub-folders in the target root folder, or "process_folder" with an additional **{"folder_to_process":"<folder_name>"}** argument to process only a specific sub-folder in the target root folder (provide only the folder name, not the full path).  See below for examples:
+
+```python
+params = {
+    'function': 'run_all'
+}
+
+response = requests.post('http://localhost:5001/request', params=params)
+```
+
+```python
+params = {
+    'function': 'process_folder',
+    'folder_to_process':'my_folder_name'
+}
+
+response = requests.post('http://localhost:5001/request', params=params)
+```
+
 ## Docker Deployment with S3
 
-A Docker image has been created based on the "tiangolo/uwsgi-nginx" Linux image, with all necessary files and libraries deployed.  It can be found at "jameslarsen42/nexus_flat_file_loader" on DockerHub.  Alternatively, a Dockerfile has been included in this package if you wish to build it yourself.
+A base Docker image has been created based on the "tiangolo/uwsgi-nginx" Linux image, with all necessary files and libraries deployed.  It can be found at "jameslarsen42/nexus-flat-file-loader-base".  Alternatively, a Dockerfile has been included in this package if you wish to build it yourself.
 
-### **S3 Folder Structure**
+Once you have the base image, you should customize the the contents of the **./docker/s3/** folder and build into a new image.
+
+### S3 Folder Structure
 
 The Docker Container uses s3sf fuse to mount an S3 bucket to specific locations used by the application.  An S3 bucket should be created with a certain sub-folder structure.  A template can be found at **./templates/S3 Folder Structure/**.  Note that the "app_config.ini" in this folder has already been optimized to point to the correct locations for Uploads, Archives and Logs, but other settings should be customized before uploading to S3.  Similarly make sure to customize "connections_config.ini" for your target database.  The file "docker.env" is not used within the application, but can be useful when launching the Docker Container, if you prefer to use environment variables rather than storing sensitive information in the .ini files.  
 
 The below environment variables are required to be defined when launching the container in order for the S3 mounts to work:
-*  ***AWS_ACCESS_KEY_ID***
-*  ***AWS_SECRET_ACCESS_KEY***
-*  ***S3_SERVER_PATH***
+*  ***NEXUS_FFL_AWS_ACCESS_KEY_ID***
+*  ***NEXUS_FFL_AWS_SECRET_ACCESS_KEY***
+*  ***NEXUS_FFL_S3_SERVER_PATH***
+*  ***NEXUS_FFL_S3_BUCKET_NAME***
 
-### **Deploying the Container**
+### Deploying the Container
 
-You can specify variables directly if you like, but the simplest method is below, after customizing your "docker.env" file.  Note that the "--cap-add SYS_ADMIN --device /dev/fuse" is necessary for the S3 mounts to work properly.
-
-``` bash
-docker run --env-file file/path/to/docker.env --cap-add SYS_ADMIN --device /dev/fuse -it nexus_flat_file_loader
-```
-
-### **Triggering the Application**
-
-Once the container is running, you can trigger the application using the below statement:
+You can specify variables directly if you like, but the simplest method is below, after customizing your "docker.env" file.  Note that the "--cap-add SYS_ADMIN --device /dev/fuse" is necessary for the S3 mounts to work properly.  You can also pass the "--bash" flag to launch the container to a bash terminal.  Otherwise it will enter into API listener mode with the default settings.
 
 ``` bash
-python3 /opt/python_scripts/flat_file_loader/src/main.py
+docker run --env-file file/path/to/docker.env --cap-add SYS_ADMIN --device /dev/fuse -it nexus-flat-file-loader-s3:latest
 ```
 
 ## File Analyzer

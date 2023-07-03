@@ -34,6 +34,7 @@ docker/*/*.env
 /.vscode/**
 launch.json
 ~$*.xls*
+test_api.py
 
 # Temporary exclusions
 docker/**
